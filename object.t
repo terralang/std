@@ -47,7 +47,7 @@ end)
 
 --large sections of this logic from terra/lib/std.t
 
-M.run_deinit = macro(function(self)
+M.run_destruct = macro(function(self)
     local T = self:gettype()
     local function hasdtor(T) --avoid generating code for empty array destructors
         if T:isstruct() then return T:getmethod("deinit") 
@@ -70,14 +70,14 @@ M.run_deinit = macro(function(self)
     return quote end
 end)
 
-M.generate_deinit = macro(function(self)
+M.generate_destruct = macro(function(self)
     local T = self:gettype()
     local entries = T:getentries()
     return quote
         escape
             for _, ent in ipairs(entries) do
                 if ent.field then -- check that it isn't a union
-                    emit `M.run_deinit(self.[ent.field])
+                    emit `M.run_destruct(self.[ent.field])
                 end
             end
         end
@@ -86,9 +86,9 @@ end)
 
 function M.Object(base)
     base.methods._init = M._init
-    base.methods.deinit = ondemand(function()
+    base.methods.destruct = ondemand(function()
         return terra(self: &base)
-            M.generate_deinit(@self)
+            M.generate_destruct(@self)
         end
     end)
 end

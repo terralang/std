@@ -1,7 +1,7 @@
 local Object = require 'std.object'.Object
 
 describe('object', function()
-    it('should provide a deinit method on a struct', function()
+    it('should provide a destruct method on a struct', function()
         local struct foo(Object) {
             a: int
             b: int
@@ -10,7 +10,7 @@ describe('object', function()
         local terra bar()
             var f = [foo]{1, 2}
             var s = f.a + f.b
-            f:deinit()
+            f:destruct()
             return s
         end
 
@@ -31,7 +31,7 @@ describe('object', function()
             var f: foo
             f:init(1, 2)
             var s = f.a + f.b
-            f:deinit()
+            f:destruct()
             return s
         end
 
@@ -52,7 +52,7 @@ describe('object', function()
             var f: foo
             f:init(1, 2)
             var s = f.a + f.b
-            f:deinit()
+            f:destruct()
             return s
         end
 
@@ -83,7 +83,7 @@ describe('object', function()
             b:init(1, 2, 3)
 
             var s = b.c.a + b.c.b + b.d
-            b:deinit()
+            b:destruct()
             return s
         end
 
