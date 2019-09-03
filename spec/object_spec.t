@@ -56,7 +56,7 @@ describe('object', function()
             return s
         end
 
-        assert.equal(bar(), 5)
+        assert.equal(bar(), 4)
     end)
 
     it('should allow nesting init tuples in _init named initialization', function()
@@ -87,6 +87,6 @@ describe('object', function()
             return s
         end
 
-        assert.equal(baz(), 8)
+        assert.equal(baz(), 7)
     end)
 end)

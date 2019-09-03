@@ -31,7 +31,7 @@ M._init = macro(function(self, init)
             var _self = &self
             escape
                 for i, ent in ipairs(init_entries) do
-                    local ftype = ent.type
+                    local ftype = (`self.[ent.field]):gettype()
                     if ftype:isstruct() and ftype:getmethod "init" then
                         emit quote (@_self).[ent.field]:init(terralib.unpacktuple(initializer.[ent.field])) end
                     else
