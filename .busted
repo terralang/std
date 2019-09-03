@@ -1,0 +1,11 @@
+package.terrapath = package.terrapath .. '../?.t'
+
+return {
+    _all = {
+        lpath = "../?.lua",
+        loaders= "lua,terra"
+    },
+    default = {
+        ROOT= {"./spec"},
+    }
+}

@@ -1,0 +1,3 @@
+return {
+    ondemand = require 'ondemand'
+}

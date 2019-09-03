@@ -1,4 +1,4 @@
-local alloc = require 'alloc'
+local alloc = require 'std.alloc'
 
 describe("allocator", function()
            it("should allocate and free memory successfully", function()

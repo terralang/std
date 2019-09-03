@@ -1,4 +1,4 @@
-local cond = require 'cond'
+local cond = require 'std.cond'
 
 local M = {}
 
