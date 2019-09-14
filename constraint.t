@@ -17,13 +17,7 @@ do
     end
 end
 
-local function join(list, seperator, init)
-  return list:reduceor(init or "", function(a,b) return a..seperator..b end)
-end
-
-local function call(x, ...)
-  return true, x(...)
-end
+local Tautalogy = function() return {} end
 
 local function PushError(err, errors, context, parent) 
   local e = {unpack(context)}
@@ -35,6 +29,13 @@ local function PushError(err, errors, context, parent)
   return errors
 end
 
+local function QuoteToString(a)
+  if terralib.isquote(a) then
+    return "|"..(a:gettype():isunit() and "{untyped terra quote}" or tostring(a:gettype())).."|"
+  end
+  return tostring(a)
+end
+
 -- Returns true if a is a subset of b
 local function CheckSubset(a, b, context)
   local objs = a:synthesize()
@@ -43,7 +44,7 @@ local function CheckSubset(a, b, context)
     return false
   end
   return objs:all(function(e)
-    local ok, err = call(b.pred, b, e, context)
+    local ok, err = pcall(b.pred, b, e, context)
     return ok
   end)
 end
@@ -53,7 +54,7 @@ local Constraint_mt = {
     if context ~= nil and type(context) ~= "table" then
       error "Invalid context!"
     end
-    local ok, err = call(self.pred, self, obj, context or {})
+    local ok, err = pcall(self.pred, self, obj, context or {})
     if not ok then
       if type(err) ~= "table" then
         err = PushError(err, {}, context or {}, tostring(self))
@@ -80,8 +81,8 @@ local Constraint_mt = {
   __mul = function(a, b) -- and
     return M.MultiConstraint(true, nil, a, b)
   end,
-  __tostring = function(self) 
-    return "Constraint["..(self.name or tostring(self.pred)).."]"
+  __tostring = function(self)
+    return "Constraint["..(self.name and (type(self.name) == "function" and self:name() or self.name) or tostring(self.pred)).."]"
   end,
   __eq = function(self, b)
     return self.pred == b.pred and self:equal(b)
@@ -96,7 +97,10 @@ local Constraint_mt = {
 
 local function ConstraintName(constraint)
   if getmetatable(constraint) == Constraint_mt then
-    return constraint.name or tostring(constraint.pred)
+    if not constraint.name then
+      return tostring(constraint.pred)
+    end
+    return type(constraint.name) == "function" and constraint:name() or constraint.name
   end
   return tostring(constraint)
 end
@@ -112,22 +116,32 @@ end
 -- The basic predicate checks to see if the types match
 local BasicPredicate = function(self, obj, context)
   if obj ~= self.type then
-      error (tostring(obj).." is not identical to "..tostring(self.type).."! Did you forget to memoize a type?")
+    if tostring(self.type) == tostring(obj) then
+      error ("Expected "..tostring(self.type).." but found different type "..tostring(self.type).." which is not identical! Did you forget to memoize a type?")
+    end
+    error ("Expected "..tostring(self.type).." but found "..tostring(obj).." instead.")
   end
   return {}
 end
 
 -- The cast predicate instead attempts to cast the type - note that this is deliberately seperated from the subset operation.
 local CastPredicate = function(self, obj, context)
-  if not IsType(self.type) then
-    error ("Expected self.type to be a terra type, but instead found "..tostring(self.type))
+  if not IsType(obj) then
+    error ("Expected cast target to be terra type, but instead found "..tostring(obj))
   end
-  local val = quote var v : obj in [self.type]([v]) end
+  local t = self.type
+  if IsConstraint(t) then
+    t = t:synthesize()
+  end
+  local val = quote var v : obj in [t]([v]) end
   return {}
 end
 
 M.BasicConstraint = function(metatype, cast)
   local t = { type = metatype, pred = cast and CastPredicate or BasicPredicate, name = (metatype == nil) and "nil" or ConstraintName(metatype) }
+  if cast and not IsType(t.type) and not IsConstraint(t.type) then
+    error (tostring(t.type).." must be a non-nil terra type if cast is true.")
+  end
 
   function t:equal(b)
     return self.type == b.type
@@ -154,7 +168,7 @@ local ValuePredicate = function(self, obj, context)
   if IsType(obj) then
     return error("Expected a terra value, but got terra type "..tostring(obj))
   end
-  if obj.gettype == nil then
+  if type(obj) ~= "table" or obj.gettype == nil then
     return error("Expected a terra value, but got "..tostring(obj))
   end
   return self.constraint(obj:gettype(), context)
@@ -278,7 +292,7 @@ end
 local MultiPredicate = function(self, obj, context)
   local errors = {}
   for _, v in ipairs(self.list) do
-    local ok, err = call(v, obj, context)
+    local ok, err = pcall(v, obj, context)
     if not ok then
       PushError(err, errors, context, self.op and "CONSTRAINT[ALL]" or "CONSTRAINT[ANY]")
     elseif not self.op then
@@ -286,19 +300,17 @@ local MultiPredicate = function(self, obj, context)
     end
   end
   if #errors > 0 then
-    error(errors)
+    error(errors:flatmap(function(e) return type(e) == "table" and e or List{e} end))
   end
   return errors
 end
 
 -- "true" means use 'and', "false" means use 'or'
 M.MultiConstraint = function(switch, id, ...)
-  local t = { name = "(", list = List(), pred = MultiPredicate, op = switch, subset = CheckSubset }
+  local t = { id = id, list = List(), pred = MultiPredicate, op = switch, subset = CheckSubset }
   for i, v in args(...) do 
     if IsConstraint(v) and v.pred == t.pred and v.op == t.op then
-      for _, value in ipairs(v.list) do
-        t.list[#t.list + 1] = value
-      end
+      v.list:app(function(e) t.list[#t.list + 1] = e end)
     else
       t.list[#t.list + 1] = v
     end
@@ -308,28 +320,19 @@ M.MultiConstraint = function(switch, id, ...)
     error ("MultiConstraint needs multiple constraints to be valid, but it has "..#t.list)
   end
 
-  for i, v in ipairs(t.list) do
-    t.name = t.name .. "(" .. ConstraintName(v) .. ")"
-    if i ~= #t.list then
-      t.name = t.name .. (switch and " and " or " or ")
+  function t:name()
+    if self.id ~= nil then
+      return id
     end
-  end
-  t.name = t.name .. ")"
-  
-  if id ~= nil then
-    t.name = id
+    
+    return "(" .. self.list:map(function(e) return ConstraintName(e) end):concat(self.switch and " and " or " or ") .. ")"
   end
 
   function t:equal(b)
     if #self.list ~= #b.list or self.op ~= b.op then
       return false
     end
-    for i, v in ipairs(self.list) do
-      if v ~= b.list[i] then
-        return false
-      end
-    end
-    return true
+    return self.list:alli(function(i, e) return e == b.list[i] end)
   end
   function t:synthesize()
     local all = self.list:flatmap(function(e) return e:synthesize() end)
@@ -381,23 +384,23 @@ local MetafuncCall = function(self, ...)
 
   -- Validate each parameter. If our parameter count exceeds our constraint, immediately fail.
   if select("#", ...) > #self.params and self.vararg == nil then
-    error ("Function type signature expects at most "..#self.params.." parameters, but was passed "..select("#", ...).."!")
+    error ("Function type signature expects at most "..#self.params.." parameters, but was passed "..select("#", ...)..": ("..table.concat({...}, ",")..")")
   end
 
   -- Otherwise, if our parameter count is lower than our constraint, we simply pass in nil and let the constraint decide if the parameter is optional.
   for i, v in ipairs(self.params) do -- This only works because we're using ipairs on self.parameters, which does not have holes
-    v(params[i], {"Parameter #"..i})
+    v(params[i], {"Metafunc(... "..QuoteToString(params[i]).." ...) [parameter #"..i.."]"})
   end
 
   -- If we allow varargs in our constraint and have leftover parameters, verify them all
   if self.vararg ~= nil then
     for i=#self.params + 1,#params do
-      self.vararg(params[i], {"Parameter #"..i})
+      self.vararg(params[i], {"Metafunc(... "..QuoteToString(params[i]).."...) [parameter #"..i.."]"})
     end
   end
   
   local r = self.raw(...)
-  self.result(r, {"Return value"})
+  self.result(r, {"Metafunc(...) -> "..QuoteToString(r)})
 
   return r
 end
@@ -424,7 +427,7 @@ function M.Meta(params, results, func, varargs)
     func = params
     params = func:gettype().parameters:map(function(e) return M.ValueConstraint(e) end)
     results = M.ValueConstraint(func:gettype().returntype)
-    varargs = func:gettype().isvararg and M.Any or nil
+    varargs = func:gettype().isvararg and M.Any() or nil
     func = function(...) return func(...) end
   end
 
@@ -486,7 +489,24 @@ function M.MetaMethod(obj, params, results, func, varargs)
   return setmetatable(f, terralib.macro)
 end
 
-local FunctionPredicate = function(self, obj, context, parent)
+local function FunctionPredicate(self, obj, context, parent)
+  if terralib.isoverloadedfunction(obj) then
+    local errors = List()
+    
+    if #obj:getdefinitions() == 0 then
+      error(tostring(obj).." has no definitions, and thus cannot satisfy "..tostring(self))
+    end
+
+    for _, v in ipairs(obj:getdefinitions()) do
+      local ok, err = pcall(FunctionPredicate, self, v, context, parent)
+      if ok then
+        return err
+      end
+      PushError(err, errors, context)
+    end
+
+    error(errors:flatmap(function(e) return type(e) == "table" and e or List{e} end))
+  end
   if terralib.isfunction(obj) then
     obj = M.Meta(obj)
   end
@@ -518,14 +538,14 @@ local FunctionPredicate = function(self, obj, context, parent)
 
     -- Validate each parameter. If our parameter count exceeds our constraint, immediately fail.
     if #params > #self.params and self.vararg == nil then
-      error ("Constraint accepts up to "..#self.params.." parameters, but "..#params.." were passed in!")
+      error ("Constraint accepts up to "..#self.params.." parameters, but was passed "..#params..": ("..params:map(QuoteToString):concat(",")..")")
     end
 
-    local errors = {}
+    local errors = List()
     -- Otherwise, if our parameter count is lower than our constraint, we simply pass in nil and let the constraint decide if the parameter is optional.
     for i, v in ipairs(self.params) do
-      --local ok, err = call(CheckSubset, params[i], v, context)
-      local ok, err = call(v, params[i], context)
+      --local ok, err = pcall(CheckSubset, params[i], v, context)
+      local ok, err = pcall(v, params[i], context)
       if not ok then
         PushError(err, errors, context)
       end
@@ -534,22 +554,22 @@ local FunctionPredicate = function(self, obj, context, parent)
     -- If we allow varargs in our constraint and have leftover parameters, verify them all
     if self.vararg ~= nil then
       for i=#self.params + 1,#params do
-        --local ok, err = call(CheckSubset, params[i], self.vararg, context)
-        local ok, err = call(self.vararg, params[i], context)
+        --local ok, err = pcall(CheckSubset, params[i], self.vararg, context)
+        local ok, err = pcall(self.vararg, params[i], context)
         if not ok then
           PushError(err, errors, context)
         end
       end
     end
     
-    --local ok, err = call(CheckSubset, result, self.result, context)
-    local ok, err = call(self.result, result, context)
+    --local ok, err = pcall(CheckSubset, result, self.result, context)
+    local ok, err = pcall(self.result, result, context)
     if not ok then
       PushError(err, errors, context)
     end
 
     if #errors > 0 then
-      error(errors)
+      error(errors:flatmap(function(e) return type(e) == "table" and e or List{e} end))
     end
   end
     
@@ -557,8 +577,7 @@ local FunctionPredicate = function(self, obj, context, parent)
 end
 
 local function FunctionConstraintName(params, result, vararg)
-  params = params:map(function(e) return ConstraintName(e) end)
-  return "{"..join(params, ",").."} -> "..ConstraintName(result)
+  return "{"..params:map(function(e) return ConstraintName(e) end):concat(",").."} -> "..ConstraintName(result)
 end
 
 M.FunctionConstraint = function(parameters, results, varargs)
@@ -589,7 +608,7 @@ M.FunctionConstraint = function(parameters, results, varargs)
     if #self.params ~= #b.params then
       return false
     end
-    return self.params:alli(function(i, e) return e ~= b.params[i] end) and self.result == b.result and self.vararg == b.vararg
+    return self.params:alli(function(i, e) return e == b.params[i] end) and self.result == b.result and self.vararg == b.vararg
   end
   function t:synthesize()
     return List{M.Meta(self.params, self.result, function() end, self.vararg)}
@@ -638,7 +657,6 @@ local MethodPredicate = function(self, obj, context)
   if func == nil then
     error ("Could not find method named "..self.method.." in "..tostring(obj))
   end
-  -- TODO: add overloaded function support
   return FunctionPredicate(self, func, context, (not self.static) and obj or nil) -- Do not use (self.static and nil or obj), because nil evaluates to false and breaks the psuedo-ternary operator
 end
 
@@ -666,7 +684,7 @@ end
 
 -- Transforms an object into a constraint. Understands either a terra type, a terra function, a metafunction object, or a raw lua function.
 function M.MakeConstraint(obj)
-  if obj == nil then return M.Any end -- nil is treated as accepting any type
+  if obj == nil then return M.Any() end -- nil is treated as accepting any type
   if IsConstraint(obj) then return obj end
   if IsType(obj) then return M.BasicConstraint(obj) end
   if type(obj) == "table" then return M.BasicConstraint(tuple(unpack(obj))) end
@@ -679,8 +697,11 @@ end
 -- Transforms an object into a value constraint.
 function M.MakeValue(obj)
   if obj == nil then return nil end
-  if IsConstraint(obj) then 
-    if obj.pred == ValuePredicate or obj.pred == TypePredicate or obj.pred == LuaPredicate or obj.pred == FunctionPredicate then
+  if IsConstraint(obj) then
+    if obj.pred == MultiPredicate then
+      return M.MultiConstraint(obj.switch, obj.id, unpack(obj.list:map(function(e) return M.MakeValue(e) end)))
+    end
+    if obj.pred == ValuePredicate or obj.pred == TypePredicate or obj.pred == LuaPredicate or obj.pred == FunctionPredicate or obj.pred == Tautalogy then
       return obj
     end
     return M.ValueConstraint(obj)
@@ -715,8 +736,14 @@ local function ParameterPredicate(self, obj, context)
 end
 
 M.MetaParameter = function(constraint)
-  local t = { type = nil, constraint = M.MakeConstraint(constraint), pred = ParameterPredicate, name = "MetaParameter: "..ConstraintName(constraint) }
+  local t = { type = nil, constraint = M.MakeConstraint(constraint), pred = ParameterPredicate }
 
+  function t:name()
+    if self.type ~= nil then
+      return "MetaParameter("..tostring(self.type).."): "..ConstraintName(self.constraint)
+    end
+    return "MetaParameter: "..ConstraintName(self.constraint)
+  end
   function t:equal(b)
     return self.constraint == b.constraint
   end
@@ -820,12 +847,9 @@ M.NegativeConstraint = function(name, ismethod)
   return setmetatable(t, Constraint_mt)
 end
 
-
-local Tautalogy = M.Constraint(function() return {} end, List{tuple()}, "nil")
-
 M.Any = function(...)
   if select("#", ...) == 0 then
-    return Tautalogy
+    return M.Constraint(Tautalogy, List{tuple()}, "Any")
   end
   return M.MultiConstraint(false, nil, ...)
 end
@@ -846,5 +870,7 @@ M.Type = M.TypeConstraint
 M.Value = M.ValueConstraint
 M.Empty = M.Value(nil)
 M.Negative = M.NegativeConstraint
+M.Cast = function(e) return M.BasicConstraint(e, true) end
+M.Rawstring = M.MakeValue(rawstring)
 
 return M
