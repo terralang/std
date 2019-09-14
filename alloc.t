@@ -48,10 +48,10 @@ M.RawAllocator = CT.All(
 
 -- This defines a type-safe allocator interface that can be overriden directly or generated from a raw allocator
 M.Allocator = CT.All(
-  CT.MetaConstraint(function(a) return CT.Method("alloc", {CT.TypeConstraint(a), CT.Integral}, CT.Pointer(a)) end, CT.TerraType),
+  CT.MetaConstraint(function(a) return CT.Method("alloc", {CT.Type(a), CT.Integral}, CT.Pointer(a)) end, CT.TerraType),
   CT.Method("free", {CT.Pointer(CT.TerraType)}, nil),
   CT.Method("clear", {CT.Pointer(CT.TerraType), CT.Integral, CT.Integral}, nil),
-  CT.MetaConstraint(function(a) return CT.Method("calloc", {CT.TypeConstraint(a), CT.Integral}, CT.Pointer(a)) end, CT.TerraType),
+  CT.MetaConstraint(function(a) return CT.Method("calloc", {CT.Type(a), CT.Integral}, CT.Pointer(a)) end, CT.TerraType),
   CT.MetaConstraint(function(a) return CT.Method("realloc", {CT.Pointer(a), CT.Integral, CT.Integral}, CT.Pointer(a)) end, CT.TerraType),
   CT.MetaConstraint(function(a) return CT.Method("copy", {CT.Pointer(a),CT.Pointer(a),CT.Integral}, nil) end, CT.TerraType)
 )
@@ -94,13 +94,13 @@ end
 -- Some methods can have working defaults.
 -- Some high level APIs can be derived from low level APIs
 -- By composing all of these derivations, allocators can be made easily from a minimal set of functionality.
-M.GenerateAllocator = CT.Meta({CT.TypeConstraint(M.RawAllocator)}, CT.TypeConstraint(M.Allocator),
+M.GenerateAllocator = CT.Meta({CT.Type(M.RawAllocator)}, CT.Type(M.Allocator),
 function(allocator)
   if not allocator:getmethod 'alloc' then
     error "allocator doesn't have alloc defined and no default behavior is available"
   end
   allocator.methods.alloc_raw = allocator.methods.alloc
-  allocator.methods.alloc = CT.MetaExpression(function(a) return CT.MetaMethod(allocator, {CT.TypeConstraint(a), CT.Integral}, CT.Pointer(a),
+  allocator.methods.alloc = CT.Expression(function(a) return CT.MetaMethod(allocator, {CT.Type(a), CT.Integral}, CT.Pointer(a),
   function(self, T, len)
     if not len then len = 1 end
     local type = T:astype()
@@ -147,7 +147,7 @@ function(allocator)
       return region
     end
   end
-  allocator.methods.calloc = CT.MetaExpression(function(a) return CT.MetaMethod(allocator, {CT.TypeConstraint(a), CT.Integral}, CT.Pointer(a),
+  allocator.methods.calloc = CT.Expression(function(a) return CT.MetaMethod(allocator, {CT.Type(a), CT.Integral}, CT.Pointer(a),
   function (self, T, nelems)
     local type = T:astype()
     return `[&type](self:calloc_raw([terralib.sizeof(type)], nelems))
@@ -160,7 +160,7 @@ function(allocator)
     end)
   end
 
-  allocator.methods.copy = CT.MetaExpression(function(a) return CT.MetaMethod(allocator, {CT.Pointer(a),CT.Pointer(a),CT.Integral}, nil,
+  allocator.methods.copy = CT.Expression(function(a) return CT.MetaMethod(allocator, {CT.Pointer(a),CT.Pointer(a),CT.Integral}, nil,
   function(self, dest, src, len)
     if dest:gettype() ~= src:gettype() then
       error "source and destination pointers of a copy are of different types. allocator copying cannot handle type casting or conversion."
@@ -183,7 +183,7 @@ function(allocator)
     end)
   end
   
-  allocator.methods.realloc = CT.MetaExpression(function(a) return CT.MetaMethod(allocator, {CT.Pointer(a), CT.Integral, CT.Integral}, CT.Pointer(a),
+  allocator.methods.realloc = CT.Expression(function(a) return CT.MetaMethod(allocator, {CT.Pointer(a), CT.Integral, CT.Integral}, CT.Pointer(a),
   function(self, ptr, old_size, new_size)
     local type = ptr:gettype().type
     return `[&type](self:realloc_raw([&opaque](ptr), old_size * [terralib.sizeof(type)], new_size * [terralib.sizeof(type)]))
