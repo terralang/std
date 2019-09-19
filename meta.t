@@ -1,3 +1,4 @@
 return {
-    ondemand = require 'ondemand'
+  ondemand = require 'std.meta.ondemand',
+  genstore = require 'std.meta.genstore'
 }
