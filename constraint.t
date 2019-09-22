@@ -64,11 +64,20 @@ local Constraint_mt = {
         error "unknown error occured"
       end
 
-      local str = ""
-      for _, e in ipairs(err) do
+      local function expand(e, idx)
+        local str = ""
         for i, v in ipairs(e) do
-          str = str..string.rep(" ", (i - 1) * 2)..v.."\n"
+          if type(v) == "table" then
+            str = str..expand(v, idx + 1)
+          else
+            str = str..string.rep(" ", (i - 1 + idx) * 2)..v.."\n"
+          end
         end
+        return str
+      end
+      local str = ""
+      for _, v in ipairs(err) do
+        str = str..expand(v, 0)
       end
 
       error (str)
@@ -290,7 +299,7 @@ local function MergeStruct(a, b)
 end
 
 local MultiPredicate = function(self, obj, context)
-  local errors = {}
+  local errors = List()
   for _, v in ipairs(self.list) do
     local ok, err = pcall(v, obj, context)
     if not ok then
@@ -300,7 +309,7 @@ local MultiPredicate = function(self, obj, context)
     end
   end
   if #errors > 0 then
-    error(errors:flatmap(function(e) return type(e) == "table" and e or List{e} end))
+    error(errors)
   end
   return errors
 end
@@ -505,7 +514,7 @@ local function FunctionPredicate(self, obj, context, parent)
       PushError(err, errors, context)
     end
 
-    error(errors:flatmap(function(e) return type(e) == "table" and e or List{e} end))
+    error(errors)
   end
   if terralib.isfunction(obj) then
     obj = M.Meta(obj)
@@ -569,7 +578,7 @@ local function FunctionPredicate(self, obj, context, parent)
     end
 
     if #errors > 0 then
-      error(errors:flatmap(function(e) return type(e) == "table" and e or List{e} end))
+      error(errors)
     end
   end
     
@@ -756,17 +765,6 @@ M.MetaParameter = function(constraint)
   return setmetatable(t, Constraint_mt)
 end
 
-function M.Expression(fn, ...)
-  local params = List()
-
-  for i, v in args(...) do 
-    params[i] = M.MetaParameter(M.MakeConstraint(v))
-  end
-  local f = fn(unpack(params))
-  f.typeparams = params
-  return f
-end
-
 local function MetaConstraintPredicate(self, obj, context)
   for _, v in ipairs(self.typeparams) do
     v.type = nil
@@ -847,6 +845,97 @@ M.NegativeConstraint = function(name, ismethod)
   return setmetatable(t, Constraint_mt)
 end
 
+local function MetatablePredicate(self, obj, context)
+  if obj == nil then
+    error("Expected metatable "..tostring(self.mt).." but found nil instead!")
+  end
+  if getmetatable(obj) ~= self.mt then
+    error("Expected "..tostring(obj).." to have metatable "..tostring(self.mt).." but found "..tostring(getmetatable(obj)).." instead!")
+  end
+  return {}
+end
+
+-- Checks to see if the metatable belonging to obj equals the expected metatable.
+M.MetatableConstraint = function(metatable)
+  local t = { mt = metatable, pred = MetatablePredicate, name = "Metatable: "..tostring(metatable) }
+
+  function t:equal(b)
+    return self.mt == b.mt
+  end
+  function t:synthesize()
+    return List{setmetatable({}, self.mt)}
+  end
+  function t:subset(b, context)
+    return self.mt == b.mt
+  end
+  return setmetatable(t, Constraint_mt)
+end
+
+local function LuaOperatorPredicate(self, obj, context)
+  if obj == nil then
+    error "obj cannot be nil"
+  end
+
+  local mt = getmetatable(obj)
+  if mt == nil then
+    error("Metatable for "..tostring(obj).." is nil")
+  elseif mt[self.op] == nil then
+    error(tostring(obj).." does not have metatable entry "..self.op.." in "..tostring(mt))
+  end
+
+  return {}
+end
+
+local function TerraOperatorPredicate(self, obj, context)
+  if not IsType(obj) or not obj:isstruct() then
+    error(tostring(obj).." is not a terra struct and therefore can't have metamethods.")
+  end
+  if obj.metamethods[self.op] == nil then
+    error (tostring(obj).." does not have metamethod "..self.op)
+  end
+
+  return {}
+end
+
+-- Checks for the existence of a given metamethod, either on a terra type or on a lua table's metatable
+M.OperatorConstraint = function(operator, luatable)
+  local t = { op = operator, pred = luatable and LuaOperatorPredicate or TerraOperatorPredicate, name = (luatable and "Lua" or "Terra").."Op: "..tostring(operator) }
+
+  function t:equal(b)
+    return self.op == b.op
+  end
+  function t:synthesize()
+    if self.pred == LuaOperatorPredicate then
+      local mt = {}
+      mt[self.op] = true
+      return List{setmetatable({}, mt)}
+    end
+
+    local s = struct{}
+    s.metamethods[self.op] = true
+    return List{s}
+  end
+  function t:subset(b, context)
+    return self.op == b.op
+  end
+  return setmetatable(t, Constraint_mt)
+end
+
+-- Generates an appropriate optional version of the constraint, depending on if it's a method, field, or value constraint.
+M.Optional = function(constraint)
+  if not IsConstraint(constraint) then
+    constraint = M.MakeValue(constraint)
+  end
+
+  if constraint.pred == FieldPredicate then
+    return constraint + M.NegativeConstraint(constraint.field, false)
+  elseif constraint.pred == MethodPredicate then
+    return constraint + M.NegativeConstraint(constraint.method, true)
+  end
+
+  return constraint + M.Value(nil)
+end
+
 M.Any = function(...)
   if select("#", ...) == 0 then
     return M.Constraint(Tautalogy, List{tuple()}, "Any")
@@ -865,6 +954,7 @@ M.Field = M.FieldConstriant
 M.Method = M.MethodConstraint
 M.Integral = M.Constraint(function(self, obj) if not IsType(obj) or not obj:isintegral() then error (tostring(obj).." is not an integral type") end return {} end, List{int, intptr, uint}, "Integral")
 M.Float = M.Constraint(function(self, obj) if not IsType(obj) or not obj:isfloat() then error (tostring(obj).." is not a float type") end return {} end, List{float, double}, "Float")
+M.TerraStruct = M.Constraint(function(self, obj) if not IsType(obj) or not obj:isstruct() then error (tostring(obj).." is not a struct") end return {} end, List{struct{}}, "Struct")
 M.Pointer = M.PointerConstraint
 M.Type = M.TypeConstraint
 M.Value = M.ValueConstraint
@@ -872,5 +962,36 @@ M.Empty = M.Value(nil)
 M.Negative = M.NegativeConstraint
 M.Cast = function(e) return M.BasicConstraint(e, true) end
 M.Rawstring = M.MakeValue(rawstring)
+M.IsConstraint = M.MetatableConstraint(Constraint_mt)
+M.LuaOperator = function(e) return M.OperatorConstraint(e, true) end
+M.TerraOperator = function(e) return M.OperatorConstraint(e, false) end
 
-return M
+-- Mathematically, the first operation is always multiplication, but to prevent confusion, we make the first
+-- operation addition. Thus, no consistent object will only have a multiplicative operator.
+M.Semigroup = M.TerraOperator("__add")
+M.Monoid = M.Semigroup * M.Method("Zero", {}, M.Any())
+M.Group = M.Monoid * M.TerraOperator("__sub")
+M.Semiring = M.Monoid * M.TerraOperator("__mul") * M.Method("Identity", {}, M.Any())
+M.Nearring = M.Group * M.TerraOperator("__mul")
+M.Ring = M.Nearring * M.Method("Identity", {}, M.Any())
+M.DivisionRing = M.Ring * M.TerraOperator("__div")
+
+M.Comparable = M.TerraOperator("__eq") * M.TerraOperator("__ne")
+M.Ordered = M.Comparable * M.TerraOperator("__le") * M.TerraOperator("__lt") * M.TerraOperator("__ge") * M.TerraOperator("__gt")
+-- Intended for booleans or bitsets
+M.Logical = M.Comparable * M.TerraOperator("and") * M.TerraOperator("or") * M.TerraOperator("not") * M.TerraOperator("xor")
+
+local M_mt = {
+  __call = function(self,fn, ...)
+    local params = List()
+
+    for i, v in args(...) do 
+      params[i] = M.MetaParameter(M.MakeConstraint(v))
+    end
+    local f = fn(unpack(params))
+    f.typeparams = params
+    return f
+  end
+}
+
+return setmetatable(M, M_mt)

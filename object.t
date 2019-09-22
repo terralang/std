@@ -2,40 +2,40 @@ local ondemand = require 'std.meta.ondemand'
 
 local M = {}
 
-M._init = macro(function(self, init)
-    local it = init:gettype()
-    local self_entries = self:gettype():getentries()
-    if it.convertible == "tuple" then
+M.initializer = terralib.memoize(function(base, it)
+    if it == nil then
+        local self_entries = base:getentries()
+        return terra(self : &base)
+            escape
+                for i, ent in ipairs(self_entries) do
+                    emit `M.init(self.[self_entries[i].field])
+                end
+            end
+        end
+    elseif it.convertible == "tuple" then
+        local self_entries = base:getentries()
         local init_entries = it:getentries()
         if #self_entries ~= #init_entries then
             error "member initialization list doesn't match object entries in length"
         end
-        return quote
-            var initializer = [init]
-            var _self = &self
+
+        return terra(self : &base, initializer : it)
             escape
                 for i, ent in ipairs(init_entries) do
-                    local ftype = ent.type
-                    if ftype:isstruct() and ftype:getmethod "init" then
-                        emit quote (@_self).[self_entries[i].field]:init(terralib.unpacktuple(initializer.[ent.field])) end
-                    else
-                        emit quote (@_self).[self_entries[i].field] = initializer.[ent.field] end
-                    end
+                    emit `M.init(self.[self_entries[i].field], initializer.[ent.field])
                 end
             end
         end
     elseif it.convertible == "named" then
-        local init_entries = it:getentries()
-        return quote
-            var initializer = [init]
-            var _self = &self
+        local self_entries = base:getentries()
+
+        return terra(self : &base, initializer : it)
             escape
-                for i, ent in ipairs(init_entries) do
-                    local ftype = (`self.[ent.field]):gettype()
-                    if ftype:isstruct() and ftype:getmethod "init" then
-                        emit quote (@_self).[ent.field]:init(terralib.unpacktuple(initializer.[ent.field])) end
+                for i, ent in ipairs(self_entries) do
+                    if it:getfield(ent.field) then
+                        emit `M.init(self.[ent.field], initializer.[ent.field])
                     else
-                        emit quote (@_self).[self_entries[i].field] = initializer.[ent.field] end
+                        emit `M.init(self.[ent.field])
                     end
                 end
             end
@@ -45,52 +45,72 @@ M._init = macro(function(self, init)
     end
 end)
 
---large sections of this logic from terra/lib/std.t
-
-M.run_destruct = macro(function(self)
-    local T = self:gettype()
-    local function hasdtor(T) --avoid generating code for empty array destructors
-        if T:isstruct() then return T:getmethod("deinit") 
-        elseif T:isarray() then return hasdtor(T.type) 
-        else return false end
+M._init = macro(function(self, init)
+    if not self:gettype():ispointer() then
+        self = `&self
     end
-    if T:isstruct() then
-        local d = T:getmethod("deinit")
-        if d then
-            return `self:deinit()
+    if init ~= nil then
+        local fn = M.initializer(self:gettype().type, init:gettype())
+        return quote fn(self, init) end
+    else 
+        local fn = M.initializer(self:gettype().type)
+        return quote fn(self) end
+    end
+end)
+
+M.init = macro(function(self, ...)
+    local args = {...}
+    local init = args[1]
+    if self:gettype():isaggregate() then
+        if self:gettype():getmethod("init") then
+            if select("#", ...) > 0 then
+                return `self:init([...])
+            else
+                return `self:init()
+            end
+        else
+            return `M._init(self, init)
         end
-    elseif T:isarray() and hasdtor(T) then        
-        return quote
+    elseif init ~= nil then -- If this isn't an aggregate type, we simply attempt to set it equal to the init value
+        return quote 
+            var _self = &self
+            (@_self) = [init]
+        end
+    end
+end)
+
+M.destructor = terralib.memoize(function(T)
+    if T:isstruct() then
+        return terra(self : &T)
+            escape
+                for _, entry in ipairs(entries) do
+                    if entry.field and entry.type:isaggregate() then -- Only generate a destructor if it isn't a union and it's an aggregate type
+                        emit `M.destruct(self.[entry.field])
+                    end
+                end
+            end
+        end
+    elseif T:isarray() and T.type:isaggregate() then
+        return terra(self : &T)
             var pa = &self
             for i = 0,T.N do
-                M.run_deinit((@pa)[i])
+                M.destruct((@pa)[i])
             end
         end
     end
     return quote end
 end)
 
-M.generate_destruct = macro(function(self)
+M.destruct = macro(function(self)
     local T = self:gettype()
-    local entries = T:getentries()
-    return quote
-        escape
-            for _, ent in ipairs(entries) do
-                if ent.field then -- check that it isn't a union
-                    emit `M.run_destruct(self.[ent.field])
-                end
-            end
+    if T:isaggregate() then
+        if T:isstruct() and T:getmethod("destruct") then
+            return `self:destruct()
         end
+        local fn = M.destructor(self:gettype())
+        return quote fn(self) end
     end
+    return quote end
 end)
-
-function M.Object(base)
-    base.methods._init = M._init
-    base.methods.destruct = ondemand(function()
-        return terra(self: &base)
-            M.generate_destruct(@self)
-        end
-    end)
-end
 
 return M

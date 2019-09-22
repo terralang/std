@@ -1,6 +1,6 @@
 local cond = require 'std.cond'
 local CT = require 'std.constraint'
-
+local Object = require 'std.object'
 local M = {}
 
 --LLVM knows how to optimize this. simple implementation, and rely on the optimizer.
@@ -29,21 +29,14 @@ M.default_clear_raw = terralib.overloadedfunction( "defaultClearRaw", {
   }
 )
 
-function M.wrap_func_as_macro_method(func)
-  return macro(function(self, ...)
-    local args = {...}
-    return `func([...])
-  end)
-end
-
 -- This defines a raw allocation interface used to generate a type safe allocator interface
 M.RawAllocator = CT.All(
   CT.Method("alloc", {intptr}, &opaque),
   CT.Method("free", {&opaque}, nil),
-  CT.Any + CT.Method("clear", {&opaque, intptr, intptr}, nil),
-  CT.Any + CT.Method("calloc", {intptr}, &opaque),
-  CT.Any + CT.Method("realloc", {&opaque, intptr, intptr}, &opaque), -- First int is old size, second int is new size. Some realloc implementations may throw away the old size parameter.
-  CT.Any + CT.Method("copy", {&opaque, &opaque, intptr}, nil)
+  CT.Optional(CT.Method("clear", {&opaque, intptr, intptr}, nil)),
+  CT.Optional(CT.Method("calloc", {intptr, intptr}, &opaque)),
+  CT.Optional(CT.Method("realloc", {&opaque, intptr, intptr}, &opaque)), -- First int is old size, second int is new size. Some realloc implementations may throw away the old size parameter.
+  CT.Optional(CT.Method("copy", {&opaque, &opaque, intptr}, nil))
 )
 
 -- This defines a type-safe allocator interface that can be overriden directly or generated from a raw allocator
@@ -100,7 +93,7 @@ function(allocator)
     error "allocator doesn't have alloc defined and no default behavior is available"
   end
   allocator.methods.alloc_raw = allocator.methods.alloc
-  allocator.methods.alloc = CT.Expression(function(a) return CT.MetaMethod(allocator, {CT.Type(a), CT.Integral}, CT.Pointer(a),
+  allocator.methods.alloc = CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a), CT.Integral}, CT.Pointer(a),
   function(self, T, len)
     if not len then len = 1 end
     local type = T:astype()
@@ -147,7 +140,7 @@ function(allocator)
       return region
     end
   end
-  allocator.methods.calloc = CT.Expression(function(a) return CT.MetaMethod(allocator, {CT.Type(a), CT.Integral}, CT.Pointer(a),
+  allocator.methods.calloc = CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a), CT.Integral}, CT.Pointer(a),
   function (self, T, nelems)
     local type = T:astype()
     return `[&type](self:calloc_raw([terralib.sizeof(type)], nelems))
@@ -160,7 +153,7 @@ function(allocator)
     end)
   end
 
-  allocator.methods.copy = CT.Expression(function(a) return CT.MetaMethod(allocator, {CT.Pointer(a),CT.Pointer(a),CT.Integral}, nil,
+  allocator.methods.copy = CT(function(a) return CT.MetaMethod(allocator, {CT.Pointer(a),CT.Pointer(a),CT.Integral}, nil,
   function(self, dest, src, len)
     if dest:gettype() ~= src:gettype() then
       error "source and destination pointers of a copy are of different types. allocator copying cannot handle type casting or conversion."
@@ -183,11 +176,38 @@ function(allocator)
     end)
   end
   
-  allocator.methods.realloc = CT.Expression(function(a) return CT.MetaMethod(allocator, {CT.Pointer(a), CT.Integral, CT.Integral}, CT.Pointer(a),
+  allocator.methods.realloc = CT(function(a) return CT.MetaMethod(allocator, {CT.Pointer(a), CT.Integral, CT.Integral}, CT.Pointer(a),
   function(self, ptr, old_size, new_size)
     local type = ptr:gettype().type
     return `[&type](self:realloc_raw([&opaque](ptr), old_size * [terralib.sizeof(type)], new_size * [terralib.sizeof(type)]))
   end) end, CT.TerraType)
+  
+  
+  allocator.methods.alloc = CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a), CT.Integral}, CT.Pointer(a),
+  function(self, T, len)
+    if not len then len = 1 end
+    local type = T:astype()
+    return `[&type](self:alloc_raw([terralib.sizeof(type)]*len))
+  end) end, CT.TerraType)
+
+  allocator.methods.new = CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a)}, CT.Pointer(a),
+  function(self, T, ...)
+    return quote
+      var res = self:alloc(T:astype())
+      Object.init(res, [...])
+    in
+      res
+    end
+  end, CT.Any()) end, CT.TerraType)
+  
+  allocator.methods.delete = CT.MetaMethod(allocator, {CT.Pointer(CT.TerraType)}, nil,
+  function(self, ptr)
+    return quote
+      var ptr_ = ptr
+      Object.destruct(ptr_)
+      self:free(ptr_)
+    end
+  end)
 
   return allocator
 end)
@@ -202,5 +222,7 @@ M.clear = macro(function(ptr, len, val) return `M.default_allocator:clear(ptr, l
 M.calloc = macro(function(T, len) return `M.default_allocator:calloc(T, len) end)
 M.realloc = macro(function(ptr, old, len) return `M.default_allocator:realloc(ptr, old, len) end)
 M.copy = macro(function(dest, src, len) return `M.default_allocator:copy(dest, src, len) end)
+M.new = macro(function(T) return `M.default_allocator:new(T) end)
+M.delete = macro(function(ptr) return `M.default_allocator:delete(ptr) end)
 
 return M
