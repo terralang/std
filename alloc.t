@@ -33,7 +33,7 @@ M.default_clear_raw = terralib.overloadedfunction( "defaultClearRaw", {
 M.RawAllocator = CT.All(
   CT.Method("alloc", {intptr}, &opaque),
   CT.Method("free", {&opaque}, nil),
-  CT.Optional(CT.Method("clear", {&opaque, intptr, intptr}, nil)),
+  CT.Optional(CT.Method("clear", {&opaque, intptr, uint8}, nil)),
   CT.Optional(CT.Method("calloc", {intptr, intptr}, &opaque)),
   CT.Optional(CT.Method("realloc", {&opaque, intptr, intptr}, &opaque)), -- First int is old size, second int is new size. Some realloc implementations may throw away the old size parameter.
   CT.Optional(CT.Method("copy", {&opaque, &opaque, intptr}, nil))
@@ -67,7 +67,7 @@ terra M.libc_allocator:free(ptr: &opaque): {}
   free(ptr)
 end
 
-terra M.libc_allocator:clear(dest: &opaque, value: intptr, size: intptr): {}
+terra M.libc_allocator:clear(dest: &opaque, size: intptr, value: uint8): {}
   memset(dest, value, size)
 end
 
@@ -96,7 +96,7 @@ function(allocator)
   allocator.methods.alloc = CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a), CT.Integral}, CT.Pointer(a),
   function(self, T, len)
     if not len then len = 1 end
-    local type = T:astype()
+    local type = T
     return `[&type](self:alloc_raw([terralib.sizeof(type)]*len))
   end) end, CT.TerraType)
 
@@ -142,8 +142,7 @@ function(allocator)
   end
   allocator.methods.calloc = CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a), CT.Integral}, CT.Pointer(a),
   function (self, T, nelems)
-    local type = T:astype()
-    return `[&type](self:calloc_raw([terralib.sizeof(type)], nelems))
+    return `[&T](self:calloc_raw([terralib.sizeof(T)], nelems))
   end) end, CT.TerraType)
 
   allocator.methods.copy_raw = allocator.methods.copy
@@ -186,14 +185,13 @@ function(allocator)
   allocator.methods.alloc = CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a), CT.Integral}, CT.Pointer(a),
   function(self, T, len)
     if not len then len = 1 end
-    local type = T:astype()
-    return `[&type](self:alloc_raw([terralib.sizeof(type)]*len))
+    return `[&T](self:alloc_raw([terralib.sizeof(T)]*len))
   end) end, CT.TerraType)
 
   allocator.methods.new = CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a)}, CT.Pointer(a),
   function(self, T, ...)
     return quote
-      var res = self:alloc(T:astype())
+      var res = self:alloc(T)
       Object.init(res, [...])
     in
       res

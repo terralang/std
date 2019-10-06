@@ -50,11 +50,9 @@ M._init = macro(function(self, init)
         self = `&self
     end
     if init ~= nil then
-        local fn = M.initializer(self:gettype().type, init:gettype())
-        return quote fn(self, init) end
+        return quote [M.initializer(self:gettype().type, init:gettype())](self, init) end
     else 
-        local fn = M.initializer(self:gettype().type)
-        return quote fn(self) end
+        return quote [M.initializer(self:gettype().type)](self) end
     end
 end)
 
@@ -102,15 +100,55 @@ M.destructor = terralib.memoize(function(T)
 end)
 
 M.destruct = macro(function(self)
-    local T = self:gettype()
+    if not self:gettype():ispointer() then
+        self = `&self
+    end
+    local T = self:gettype().type
     if T:isaggregate() then
         if T:isstruct() and T:getmethod("destruct") then
             return `self:destruct()
         end
-        local fn = M.destructor(self:gettype())
-        return quote fn(self) end
+        return quote [M.destructor(T)](self) end
     end
     return quote end
 end)
 
+
+M.op_copy = terralib.memoize(function(T)
+    if T:isstruct() then
+        return terra(self : &T, arg : &T)
+            escape
+                for _, entry in ipairs(entries) do
+                    emit `M.copy(self.[entry.field], arg.[entry.field])
+                end
+            end
+        end
+    elseif T:isarray() and T.type:isaggregate() then
+        return terra(self : &T, arg : &T)
+            var pa = &self
+            var pb = &arg
+            for i = 0,T.N do
+                M.copy((@pa)[i], (@pb)[i])
+            end
+        end
+    end
+    return quote 
+        var _self = &self
+        (@_self) = [arg]
+    end
+end)
+
+M.copy = macro(function(self, arg)
+    if not self:gettype():ispointer() then
+        self = `&self
+    end
+    local T = self:gettype().type
+    if T:isaggregate() then
+        if T:isstruct() and T:getmethod("copy") then
+            return `self:copy(arg)
+        end
+        return quote [M.op_copy(T)](self, arg) end
+    end
+    return quote end
+end)
 return M

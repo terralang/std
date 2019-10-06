@@ -427,6 +427,20 @@ local function IsMetafunc(obj)
   return getmetatable(obj) == terralib.macro and obj.raw ~= nil
 end
 
+local function ExtractTerraTypes(fn)
+  return function(...)
+    local params = {}
+    for i, v in args(...) do
+      if v.tree:is("luaobject") and IsType(v.tree.value) then
+        params[i] = v:astype()
+      else
+        params[i] = v
+      end
+    end
+    return fn(unpack(params))
+  end
+end
+
 -- This builds a typed lua function using M.Number, M.String and M.Table (or just M.Value) to represent expected raw lua values, and
 -- assumes metatype() is used to wrap types that should be passed in as terra types, not terra values of that type. It exposes this
 -- type information so that constraints can query it, then appends the original function with constraint checks on the parameters
@@ -466,13 +480,14 @@ function M.Meta(params, results, func, varargs)
       end
     end
     
-    n.fromterra = function(...) return MetafuncCall(n, ...) end
-    n.fromlua = n.fromterra
+    n.fromlua = function(...) return MetafuncCall(n, ...) end
+    n.fromterra = ExtractTerraTypes(n.fromlua)
     return setmetatable(n, terralib.macro)
   end
 
-  f.fromterra = function(...) MetafuncClear(f) return MetafuncCall(f, ...) end
-  f.fromlua = f.fromterra
+  f.fromlua = function(...) MetafuncClear(f) return MetafuncCall(f, ...) end
+  f.fromterra = ExtractTerraTypes(f.fromlua)
+
   return setmetatable(f, terralib.macro)
 end
 
@@ -489,12 +504,12 @@ function M.MetaMethod(obj, params, results, func, varargs)
     f.params[i + 1] = M.MakeValue(v)
   end
   
-  f.fromterra = function(s, ...)
+  f.fromlua = function(s, ...)
     if not s:gettype():ispointer() then s = `&s end
     MetafuncClear(f)
     return MetafuncCall(f, s, ...)
   end
-  f.fromlua = f.fromterra
+  f.fromterra = ExtractTerraTypes(f.fromlua)
   return setmetatable(f, terralib.macro)
 end
 
