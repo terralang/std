@@ -1,6 +1,6 @@
 local M = {}
 local IsType = terralib.types.istype
-local List = require 'std.terralist'
+local List = require 'terralist'
 
 local args
 do
