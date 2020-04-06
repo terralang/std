@@ -2,11 +2,13 @@ M = {}
 local template = require 'std.template'
 
 M.min = template(function(T, U)
-  return terra(x:T, y:U) return terralib.select(x < y, x, y) end
+  local terra min(x:T, y:U) return terralib.select(x < y, x, y) end
+  return min
 end)
 
 M.max = template(function(T, U)
-  return terra(x:T, y:U) return terralib.select(x > y, x, y) end
+  local terra max(x:T, y:U) return terralib.select(x > y, x, y) end
+  return max
 end)
 
 for _, name in pairs{"sqrt", "sin", "cos", "log", "log2", "log10", "exp", "exp2", "exp10", "fabs", "ceil", "floor", "trunc", "rint", "nearbyint", "round"} do
