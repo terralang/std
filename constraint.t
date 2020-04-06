@@ -315,8 +315,8 @@ local MultiPredicate = function(self, obj, context)
 end
 
 -- "true" means use 'and', "false" means use 'or'
-M.MultiConstraint = function(switch, id, ...)
-  local t = { id = id, list = List(), pred = MultiPredicate, op = switch, subset = CheckSubset }
+M.MultiConstraint = function(opt, id, ...)
+  local t = { id = id, list = List(), pred = MultiPredicate, op = opt, subset = CheckSubset }
   for i, v in args(...) do 
     if IsConstraint(v) and v.pred == t.pred and v.op == t.op then
       v.list:app(function(e) t.list[#t.list + 1] = e end)
@@ -334,7 +334,7 @@ M.MultiConstraint = function(switch, id, ...)
       return id
     end
     
-    return "(" .. self.list:map(function(e) return ConstraintName(e) end):concat(self.switch and " and " or " or ") .. ")"
+    return "(" .. self.list:map(function(e) return ConstraintName(e) end):concat(self.op and " and " or " or ") .. ")"
   end
 
   function t:equal(b)
@@ -723,7 +723,7 @@ function M.MakeValue(obj)
   if obj == nil then return nil end
   if IsConstraint(obj) then
     if obj.pred == MultiPredicate then
-      return M.MultiConstraint(obj.switch, obj.id, unpack(obj.list:map(function(e) return M.MakeValue(e) end)))
+      return M.MultiConstraint(obj.op, obj.id, unpack(obj.list:map(function(e) return M.MakeValue(e) end)))
     end
     if obj.pred == ValuePredicate or obj.pred == TypePredicate or obj.pred == LuaPredicate or obj.pred == FunctionPredicate or obj.pred == Tautalogy then
       return obj
