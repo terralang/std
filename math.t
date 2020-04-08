@@ -11,6 +11,13 @@ M.max = template(function(T, U)
   return max
 end)
 
+M.abs = template(function(T)
+  if T == float then return terra(x:float) return [terralib.intrinsic("llvm.fabs.f32", float -> float)](x) end end
+  if T == double then return terra(x:double) return [terralib.intrinsic("llvm.fabs.f64", double -> double)](x) end end
+  local terra abs(x:T) return terralib.select(x < 0, -x, x) end
+  return abs
+end)
+
 for _, name in pairs{"sqrt", "sin", "cos", "log", "log2", "log10", "exp", "exp2", "exp10", "fabs", "ceil", "floor", "trunc", "rint", "nearbyint", "round"} do
   local f = terralib.overloadedfunction(name)
   for tname, ttype in pairs{f32 = float, f64 = double} do

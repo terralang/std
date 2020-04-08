@@ -1,6 +1,7 @@
 local M = {}
 local IsType = terralib.types.istype
 local List = require 'terralist'
+local tunpack = table.unpack or unpack
 
 local args
 do
@@ -491,6 +492,17 @@ function M.Meta(params, results, func, varargs)
   return setmetatable(f, terralib.macro)
 end
 
+-- This is a shortcut for Meta that simply gathers all types from the parameters and passes it into func(), which must return a terra function.
+function M.Template(params, results, func, varargs)
+  local genfun = terralib.memoize(func)
+  return M.Meta(params, results, function(...) 
+    local args = terralib.newlist{...}
+    local types = args:map(function(x) return x:gettype() end)
+    local resfun = genfun(tunpack(types))
+    return `resfun([args])
+  end, varargs)
+end
+
 -- This is used for creating metafunctions that exist as methods attached to a type, automatically adding the type constraint to the parameters
 function M.MetaMethod(obj, params, results, func, varargs)
   if not IsType(obj) then
@@ -513,6 +525,17 @@ function M.MetaMethod(obj, params, results, func, varargs)
   return setmetatable(f, terralib.macro)
 end
 
+-- This is a shortcut for MetaMethod that simply gathers all types from the parameters and passes it into func(), which must return a terra function.
+function M.TemplateMethod(obj, params, results, func, varargs)
+  local genfun = terralib.memoize(func)
+  return M.MetaMethod(obj, params, results, function(...) 
+    local args = terralib.newlist{...}
+    local types = args:map(function(x) return x:gettype() end)
+    local resfun = genfun(tunpack(types))
+    return `resfun([args])
+  end, varargs)
+end
+
 local function FunctionPredicate(self, obj, context, parent)
   if terralib.isoverloadedfunction(obj) then
     local errors = List()
@@ -530,6 +553,9 @@ local function FunctionPredicate(self, obj, context, parent)
     end
 
     error(errors)
+  end
+  if terralib.isquote(obj) then
+    obj = obj:asvalue()
   end
   if terralib.isfunction(obj) then
     obj = M.Meta(obj)

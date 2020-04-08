@@ -1,7 +1,7 @@
 local tunpack = table.unpack or unpack
 
 return function (body)
-  local genfun = terralib.memoize(function(...) return body(...) end)
+  local genfun = terralib.memoize(body)
   return macro(function(...)
     local args = terralib.newlist{...}
     local types = args:map(function(x) return x:gettype() end)
