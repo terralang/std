@@ -182,22 +182,24 @@ function(allocator)
   end) end, CT.TerraType)
   
   
-  allocator.methods.alloc = CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a), CT.Integral}, CT.Pointer(a),
+  allocator.methods.alloc = CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a), CT.Optional(CT.Integral)}, CT.Pointer(a),
   function(self, T, len)
     if not len then len = 1 end
     return `[&T](self:alloc_raw([terralib.sizeof(T)]*len))
   end) end, CT.TerraType)
 
-  allocator.methods.new = CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a)}, CT.Pointer(a),
+  allocator.methods.new = macro(--CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a)}, CT.Pointer(a),
   function(self, T, ...)
+    local args = {...}
     return quote
       var res = self:alloc(T)
-      Object.init(res, [...])
+      Object.init(@res, {[args]})
     in
       res
     end
-  end, CT.Any()) end, CT.TerraType)
-  
+  --end, CT.Any()) end, CT.TerraType)
+  end)
+
   allocator.methods.delete = CT.MetaMethod(allocator, {CT.Pointer(CT.TerraType)}, nil,
   function(self, ptr)
     return quote
@@ -220,7 +222,7 @@ M.clear = macro(function(ptr, len, val) return `M.default_allocator:clear(ptr, l
 M.calloc = macro(function(T, len) return `M.default_allocator:calloc(T, len) end)
 M.realloc = macro(function(ptr, old, len) return `M.default_allocator:realloc(ptr, old, len) end)
 M.copy = macro(function(dest, src, len) return `M.default_allocator:copy(dest, src, len) end)
-M.new = macro(function(T) return `M.default_allocator:new(T) end)
+M.new = macro(function(T, ...) local args = {...} return `M.default_allocator:new(T, [args]) end)
 M.delete = macro(function(ptr) return `M.default_allocator:delete(ptr) end)
 
 return M

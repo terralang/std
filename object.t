@@ -45,34 +45,32 @@ M.initializer = terralib.memoize(function(base, it)
     end
 end)
 
-M._init = macro(function(self, init)
+M._init = macro(function(self, value)
     if not self:gettype():ispointer() then
         self = `&self
     end
-    if init ~= nil then
-        return quote [M.initializer(self:gettype().type, init:gettype())](self, init) end
+    if value ~= nil then
+        return quote [M.initializer(self:gettype().type, value:gettype())](self, value) end
     else 
         return quote [M.initializer(self:gettype().type)](self) end
     end
 end)
 
-M.init = macro(function(self, ...)
-    local args = {...}
-    local init = args[1]
+M.init = macro(function(self, value)
     if self:gettype():isaggregate() then
         if self:gettype():getmethod("init") then
-            if select("#", ...) > 0 then
-                return `self:init([...])
+            if value ~= nil and value:gettype() ~= terralib.types.unit then
+                return `self:init(terralib.unpacktuple(value))
             else
                 return `self:init()
             end
         else
-            return `M._init(self, init)
+            return `M._init(self, value)
         end
-    elseif init ~= nil then -- If this isn't an aggregate type, we simply attempt to set it equal to the init value
+    elseif value ~= nil then -- If this isn't an aggregate type, we simply attempt to set it equal to the init value
         return quote 
             var _self = &self
-            (@_self) = [init]
+            (@_self) = [value]
         end
     end
 end)
@@ -81,6 +79,7 @@ M.destructor = terralib.memoize(function(T)
     if T:isstruct() then
         return terra(self : &T)
             escape
+                local entries = T:getentries()
                 for _, entry in ipairs(entries) do
                     if entry.field and entry.type:isaggregate() then -- Only generate a destructor if it isn't a union and it's an aggregate type
                         emit `M.destruct(self.[entry.field])
@@ -151,4 +150,11 @@ M.copy = macro(function(self, arg)
     end
     return quote end
 end)
+
+--setmetatable(M, {__call = function(base)
+function M.Object(base)
+    base.methods._init = M._init
+    base.methods.destruct = M.destructor(base)
+end
+
 return M
