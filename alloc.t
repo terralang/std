@@ -188,7 +188,7 @@ function(allocator)
     return `[&T](self:alloc_raw([terralib.sizeof(T)]*len))
   end) end, CT.TerraType)
 
-  allocator.methods.new = macro(--CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a)}, CT.Pointer(a),
+  allocator.methods.new = CT(function(a) return CT.MetaMethod(allocator, {CT.Type(a)}, CT.Pointer(a),
   function(self, T, ...)
     local args = {...}
     return quote
@@ -197,8 +197,7 @@ function(allocator)
     in
       res
     end
-  --end, CT.Any()) end, CT.TerraType)
-  end)
+  end, CT.Any()) end, CT.TerraType)
 
   allocator.methods.delete = CT.MetaMethod(allocator, {CT.Pointer(CT.TerraType)}, nil,
   function(self, ptr)
