@@ -106,9 +106,7 @@ function(allocator)
   allocator.methods.free_raw = allocator.methods.free
   allocator.methods.free = CT.MetaMethod(allocator, {CT.Pointer(CT.TerraType)}, nil,
   function(self, ptr)
-    return quote
-      self:free_raw([&opaque](ptr))
-    end
+    return `self:free_raw([&opaque](ptr))
   end)
 
   allocator.methods.clear_raw = allocator.methods.clear
@@ -201,11 +199,12 @@ function(allocator)
 
   allocator.methods.delete = CT.MetaMethod(allocator, {CT.Pointer(CT.TerraType)}, nil,
   function(self, ptr)
-    return quote
-      var ptr_ = ptr
-      Object.destruct(ptr_)
-      self:free(ptr_)
+
+    local terra delete_impl(self: self:gettype(), ptr: ptr:gettype())
+      Object.destruct(ptr)
+      self:free(ptr)
     end
+    return `delete_impl(self, ptr)
   end)
 
   return allocator
