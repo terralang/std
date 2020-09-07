@@ -1,4 +1,4 @@
-M = {}
+local M = {}
 local template = require 'std.template'
 
 M.min = template(function(T, U)
