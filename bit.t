@@ -37,9 +37,9 @@ M.smallest_ge_pow2 = template(function(T)
       if M.is_pow2(x) then
         return x
       else
-        return 1 << (M.ctlz(x) * [
+        return 1 << ([
                        8 * terralib.sizeof(T:isvector() and T.type or T)
-                    ])
+                     ] - M.ctlz(x))
       end
     end
     return smallest_ge_pow2
