@@ -37,7 +37,7 @@ allocator functions, and so it is included.
 to a meaningful initial state. Clear sets it to all zeros, which may or may not be a valid state,
 but is at least a consistently known one.
 
-`allocator:clear()` and `object:destroy()` should not be confused. Destroy releases any external
+`allocator:clear()` and `object:destruct()` should not be confused. Destroy releases any external
 resources held by the object, but does not need to leave it in any known state or destroy all sensitive
 data. Clear does not release any external resources, but does destroy the data held in the object.
 For any security critical operation, an additional operation shred which both releases resources

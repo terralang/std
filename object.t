@@ -157,4 +157,59 @@ function M.Object(base)
     base.methods.destruct = M.destructor(base)
 end
 
+M.new = macro(function(T, ...)
+    local args = {...}
+    if terralib.isquote(T) then
+        T = T:astype()
+    end
+    
+    return quote 
+        var v : T
+        M.init(v, {[args]})
+        defer M.destruct(v)
+    in 
+        v
+    end
+end)
+
+M.construct = macro(function(v, ...)
+    local args = {...}
+    
+    return quote 
+        M.init(v, {[args]})
+        defer M.destruct(v)
+    end
+end)
+
+-- Wraps a function call in a destruct macro. The macro calls the function, assigns the result to a variable,
+-- defers a destruction method, and returns the result. Used in functions that need to return objects, like a string.
+-- The object CANNOT BE MODIFIED or the destructor will be wrong.
+M.destroy = function(f)
+    return macro(function(...)
+        local args = {...}
+        return quote 
+            var v = f([args])
+            defer M.destruct(v)
+        in
+            v
+        end
+    end)
+end
+
+-- Recursively sets all pointers to null in a type so that the destructor does nothing
+M.move = macro(function(self)
+    if self:gettype():isaggregate() then
+        local self_entries = base:getentries()
+        return quote
+            escape
+                for i, ent in ipairs(self_entries) do
+                    emit `M.move(self.[self_entries[i].field])
+                end
+            end
+        end
+    elseif self:gettype():ispointer() then
+        return quote self = nil end
+    end
+end)
+
 return M
