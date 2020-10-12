@@ -60,7 +60,7 @@ M.init = macro(function(self, value)
     if self:gettype():isaggregate() then
         if self:gettype():getmethod("init") then
             if value ~= nil and value:gettype() ~= terralib.types.unit then
-                return `self:init(terralib.unpacktuple(value))
+                return quote var v = value; self:init(terralib.unpacktuple(v)) end
             else
                 return `self:init()
             end
@@ -154,46 +154,74 @@ end)
 --setmetatable(M, {__call = function(base)
 function M.Object(base)
     base.methods._init = M._init
-    base.methods.destruct = M.destructor(base)
+    if not base.methods.destruct then -- Terra is inconsistent about when it runs this function
+        base.methods.destruct = M.destructor(base)
+    end
 end
 
 M.new = macro(function(T, ...)
     local args = {...}
-    if terralib.isquote(T) then
-        T = T:astype()
+    if terralib.types.istype(T:asvalue()) then
+        if terralib.isquote(T) then
+            T = T:astype()
+        end
+        
+        return quote 
+            var v : T
+            M.init(v, {[args]})
+            defer M.destruct(v)
+        in 
+            v
+        end
     end
     
     return quote 
-        var v : T
-        M.init(v, {[args]})
-        defer M.destruct(v)
-    in 
-        v
+        M.init(T, {[args]})
+        defer M.destruct(T)
     end
 end)
 
 M.construct = macro(function(v, ...)
     local args = {...}
     
-    return quote 
-        M.init(v, {[args]})
-        defer M.destruct(v)
-    end
+    return `M.init(v, {[args]})
 end)
 
 -- Wraps a function call in a destruct macro. The macro calls the function, assigns the result to a variable,
 -- defers a destruction method, and returns the result. Used in functions that need to return objects, like a string.
 -- The object CANNOT BE MODIFIED or the destructor will be wrong.
 M.destroy = function(f)
-    return macro(function(...)
-        local args = {...}
+    if terralib.isfunction(f) and #f.definition.parameters > 0 and f.definition.parameters[1].name == "self" then
+        return macro(function(s, ...)
+            local args = {...}
+            if not s:gettype():ispointer() then
+                s = `&s
+            end
+            return quote 
+                var v = f(s, [args])
+                defer M.destruct(v)
+            in
+                v
+            end
+        end)
+    elseif terralib.isquote(f) then
         return quote 
-            var v = f([args])
+            var v = f
             defer M.destruct(v)
         in
             v
         end
-    end)
+    else
+        return macro(function(...)
+            local args = {...}
+            return quote 
+                var v = f([args])
+                defer M.destruct(v)
+            in
+                v
+            end
+        end)
+    end
 end
 
 -- Recursively sets all pointers to null in a type so that the destructor does nothing

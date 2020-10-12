@@ -6,7 +6,7 @@ local C = nil
 if ffi.os == "Windows" then
 C = terralib.includecstring [[
 #include <string.h>
-#include <stdio.h>
+#include <stdio.h> // for _wremove
 
 #pragma pack(push)
 #pragma pack(8)
@@ -43,8 +43,19 @@ C = terralib.includecstring [[
 #include <sys/stat.h>   // stat().
 #include <dirent.h>
 #include <unistd.h> // rmdir()
+#include <ftw.h>
 
-#include <stdio.h>
+bool _T_ISDIR(m) { return S_ISDIR(m); }
+
+int _deldir_func(const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftwbuf)
+{
+  assert(typeflag!=FTW_D); //shouldn't happen because we set FTW_DEPTH
+  if(typeflag==FTW_DP)
+    return rmdir(fpath);
+  if(typeflag==FTW_F)
+    return unlink(fpath);
+  return remove(fpath);
+}
 ]]
 end
 
@@ -98,10 +109,6 @@ F.path.methods.init = terralib.overloadedfunction("init", {
   end
 })
 
-terra F.path:normalize() : {}
-  self.s = normalize(self.s)
-end
-
 terra F.path:destruct() : {}
   if self.s ~= nil then
     Alloc.free(self.s)
@@ -109,13 +116,20 @@ terra F.path:destruct() : {}
 end
 
 local terra path_concat(l : rawstring, r : rawstring, extra : int) : rawstring
-  replaceChar(r, ('\\')[0], ('/')[0])
+  while r[0] == ('/')[0] or r[0] == ('\\')[0] do r = r + 1 end
+
   var first = C.strlen(l)
-  var len = first + C.strlen(r) + 1
+  var second = C.strlen(r)
+
+  while r[second - 1] == ('/')[0] or r[second - 1] == ('\\')[0] do 
+    second = second - 1
+  end
+
+  var len = first + second + 1
   var s = Alloc.alloc(int8, len + extra)
   Alloc.copy(s, l, first)
 
-  if first == 0 or l[first-1] == ('/')[0] then
+  if first == 0 or l[first-1] == ('/')[0] or l[first-1] == ('\\')[0] then
     extra = 0
   end
 
@@ -123,7 +137,9 @@ local terra path_concat(l : rawstring, r : rawstring, extra : int) : rawstring
     s[first] = ('/')[0]
   end
 
-  Alloc.copy(s + first + extra, r, len - first)
+  Alloc.copy(s + first + extra, r, second)
+  s[len + extra - 1] = 0
+  replaceChar(s, ('\\')[0], ('/')[0])
   return s
 end
 
@@ -132,25 +148,21 @@ local terra absolute_path(s : rawstring) : bool
   return pos ~= nil and ((pos == s) or (pos[-1] == (':')[0]))
 end
 
-terra F.path:concat(p : rawstring) : {}
+F.path.methods.concat = O.destroy(terra(self : &F.path, p : rawstring) : F.path
   if self.s ~= nil then
-    var s = path_concat(self.s, p, 0)
-    Alloc.free(self.s)
-    self.s = s
+    return F.path{path_concat(self.s, p, 0)}
   else
-    self.s = normalize(p)
+    return F.path{normalize(p)}
   end
-end
+end)
 
-terra F.path:append(p : rawstring) : {}
+F.path.methods.append = O.destroy(terra(self : &F.path, p : rawstring) : F.path
   if self.s ~= nil then
-    var s = path_concat(self.s, p, 1)
-    Alloc.free(self.s)
-    self.s = s
+    return F.path{path_concat(self.s, p, 1)}
   else
-    self.s = normalize(p)
+    return F.path{normalize(p)}
   end
-end
+end)
 
 terra F.path:is_relative() return not absolute_path(self.s) end
 terra F.path:is_absolute() return absolute_path(self.s) end
@@ -193,16 +205,60 @@ F.path.metamethods.__cast = function(from, to, exp)
   if from == niltype and to == F.path then
     return `F.path{nil}
   end
-  if from == F.path and to == rawstring then
+  if (from == F.path or from == &F.path) and to == rawstring then
     return `exp.s
   end
   error(("unknown conversion %s to %s"):format(tostring(from),tostring(to)))
 end
 
---F.path.metamethods.__add = macro(function(a, b)
---  local ta = a:gettype()
---  local tb = b:gettype() 
---end)
+F.path.metamethods.__add = macro(function(a, b)
+  if type(a) == "string" or a:gettype() == rawstring then
+    return O.destroy(`F.path{path_concat(a, b.s, 0)})
+  elseif type(b) == "string" or b:gettype() == rawstring then
+    return O.destroy(`F.path{path_concat(a.s, b, 0)})
+  end
+  return O.destroy(`F.path{path_concat(a.s, b.s, 0)})
+end)
+
+F.path.metamethods.__div = macro(function(a, b)
+  if type(a) == "string" or a:gettype() == rawstring then
+    return O.destroy(`F.path{path_concat(a, b.s, 1)})
+  elseif type(b) == "string" or b:gettype() == rawstring then
+    return O.destroy(`F.path{path_concat(a.s, b, 1)})
+  end
+  return O.destroy(`F.path{path_concat(a.s, b.s, 1)})
+end)
+
+
+terra F.path.metamethods.__eq(a : rawstring, b : rawstring)
+  if a == nil and b == nil then return true end
+  if a == nil or b == nil then return false end
+  return C.strcmp(a, b) == 0
+end
+
+terra F.path.metamethods.__ne(a : rawstring, b : rawstring)
+  return not [F.path.metamethods.__eq](a, b)
+end
+
+terra F.path.metamethods.__le(a : rawstring, b : rawstring)
+  if a == nil and b == nil then return true end
+  if a == nil or b == nil then return false end
+  return C.strcmp(a, b) <= 0
+end
+
+terra F.path.metamethods.__ge(a : rawstring, b : rawstring)
+  if a == nil and b == nil then return true end
+  if a == nil or b == nil then return false end
+  return C.strcmp(a, b) >= 0
+end
+
+terra F.path.metamethods.__lt(a : rawstring, b : rawstring)
+  return not [F.path.metamethods.__ge](a, b)
+end
+
+terra F.path.metamethods.__gt(a : rawstring, b : rawstring)
+  return not [F.path.metamethods.__le](a, b)
+end
 
 struct F.Info {
   exists : bool
@@ -240,7 +296,7 @@ if ffi.os == "Windows" then
   local windowfy = macro(function(p)
     return quote
       var v = towchar(p, 0, 0)
-      replaceChar(v, ('\\')[0], ('/')[0])
+      replaceChar(v, ('/')[0], ('\\')[0])
       defer Alloc.free(v)
     in
       v
@@ -261,7 +317,7 @@ if ffi.os == "Windows" then
   terra F.attributes(p : rawstring) : F.Info
     var s = windowfy(p)
     var attr : C._WIN32_FILE_ATTRIBUTE_DATA
-    
+
     if C.GetFileAttributesExW(s, 0, &attr) ~= 0 then
       return translatefileinfo(&attr)
     end
@@ -335,7 +391,7 @@ if ffi.os == "Windows" then
           var i = translatefileinfo([&C._WIN32_FILE_ATTRIBUTE_DATA](&p.ffd))
           i.filename = fromwchar(p.ffd.cFileName)
           defer Alloc.free(i.filename)
-          [body(`i)]
+          [body(i)]
         end
       end)
   end
@@ -387,12 +443,13 @@ if ffi.os == "Windows" then
     
     [FolderIterW(d, function(i) return `rmdirloop(s, i) end)]
 
+    s[len] = 0
     return C.RemoveDirectoryW(s) ~= 0
   end
 
   terra F.exists(p : rawstring, folder : bool) : bool
     var s = towchar(p, 4, 4)
-    defer Alloc.free(s)
+    defer Alloc.free(s - 4)
     replaceChar(s, ('\\')[0], ('/')[0])
 
     var pos = C.wcschr(s, ('/')[0])
@@ -415,6 +472,80 @@ if ffi.os == "Windows" then
     return terralib.select(folder, attr ~= 0, attr == 0)
   end
 else
+
+  terra F.attributes(p : rawstring) : F.Info
+    var st : C.stat
+    if C.stat(path, &st) ~= 0 then
+      return F.Info{false}
+    end
+
+    return translatefileinfo(&st)
+  end
+
+  terra F.chdir(p : rawstring) : bool
+    return C.chdir(p) == 0
+  end
+
+  F.currentdir = O.destroy(terra() : F.path
+    var s = Alloc.alloc(int8, 2048)
+    if C.getcwd(s, 2048) == nil then
+      Alloc.free(s)
+      return F.path{nil}
+    end
+    return F.path{s}
+  end)
+
+  struct F.Directory {
+    handle : &C.DIR
+  }
+
+  F.Directory.metamethods.__for = function(iter,body)
+    local terra freehandle(handle : &C.DIR) : {}
+      if handle ~= nil then
+        C.closedir(handle)
+      end
+    end
+    
+    return quote
+      if p.handle ~= nil then
+        var p : F.Directory = iter
+        defer freehandle(p.handle) -- in case the loop terminates early
+
+        var st : C.stat
+        var dent : &C.dirent = readdir(p.handle)
+
+        while dent ~= nil do
+          if C.strcmp(dent.d_name, ".") ~= 0 and C.strcmp(dent.d_name, "..") ~= 0 and C.fstatat(C.dirfd(p.handle), dent.d_name, &st, 0) == 0 then
+            var info = translatefileinfo(&st)
+            info.filename = dent.d_name
+            [body(`info)]
+          end
+          
+          dent = readdir(p.handle)
+        end
+      end
+    end
+  end
+
+  terra F.dir(p : rawstring) : F.Directory
+    return F.Directory { C.opendir(p) }
+  end
+
+  terra F.mkdir(p : rawstring) : bool
+    return C.mkdir(p, 0700) == 0
+  end
+
+  terra F.rmdir(p : rawstring) : bool
+    return C.nftw(p,&C._deldir_func, 20, C.FTW_DEPTH) == 0
+  end
+
+  terra F.exists(p : rawstring, folder : bool) : bool
+    var st : C.stat
+    if C.stat(path, &st) ~= 0 then
+      return false
+    end
+    return C._T_ISDIR(st.st_mode)^folder
+  end
 
 end
 

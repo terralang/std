@@ -33,6 +33,7 @@ TT.total = 0
 TT.errored = 0
 TT.start = Time.Clock()
 TT.assert = {}
+TT.ROOT_DIR = ""
 
 function TT.describe(text, f)
   table.insert(TT.stack, #TT.stack + 1, text)
@@ -58,6 +59,12 @@ function TT.it(text, f)
         end
       end
       print(line)
+      if type(err.err) == "cdata" then
+        err.err = ffi.string(err.err)
+      end
+      if type(err.source) == "cdata" then
+        err.source = ffi.string(err.source)
+      end
       print("[" .. err.source .. ":" .. err.line .. "] " .. err.err)
     else -- If it's a real error (not an assert) then propagate
       TT.errored = TT.errored + 1
@@ -67,77 +74,199 @@ function TT.it(text, f)
   TT.stack[#TT.stack] = nil
 end
 
-setmetatable(TT.assert, {
-  __call = function(self, b, s)
-    if not b then
-      local e = {source = debug.getinfo(1).short_src, line = debug.getinfo(1).currentline}
-      if s == nil then
-        e.err = "assertion failed!"
-      else
-        e.err = s
-      end
-      error(e)
+-- For temporarily disabling tests
+function TT.xdescribe(text, f) end
+function TT.xit(text, f) end
+
+local function Assertion(b, s, src, l)
+  if not b then
+    local e = {source = src, line = l}
+    if s == nil then
+      e.err = "assertion failed!"
+    else
+      e.err = s
     end
+    error(e)
+  end
+end
+
+-- This allows us to call the assertion from terra and produce an error that we can catch without blowing up the macro
+local runassert_t = terralib.cast({bool, rawstring, rawstring, int} -> {}, Assertion)
+
+setmetatable(TT.assert, {
+  __call = function(self, b, s, offset)
+    offset = offset or 0
+    Assertion(b, s, debug.getinfo(2 + offset).short_src, debug.getinfo(2 + offset).currentline)
   end
 })
 
-function getTypeString(t)
-  if type(t) == "table" and terralib.isquote(t) then
+local function assertTerra(v, desc)
+  -- 8 is the current stack depth when terra evaluates macros. Hopefully it doesn't change! ᕕ( ᐛ )ᕗ
+  local src = debug.getinfo(8).short_src
+  local line = debug.getinfo(8).currentline
+  return `runassert_t([v], [desc], [src], [line])
+end
+
+local function getTypeString(t)
+  if terralib.isquote(t) then
     return tostring(t:gettype())
   end
   return type(t)
 end
 
-function TT.assert.truthy(...)
-  for i,v in ipairs({...}) do
-    TT.assert(v ~= false and v ~= nil, "Expected truthy value.\nPassed in: (" .. getTypeString(v) .. ")\n" .. tostring(v))
+function TT.assert.is_true(v)
+  local desc = "Expected boolean true value, but got (" .. getTypeString(v) .. ") " .. tostring(v)
+  if terralib.isquote(v) then
+    if v:gettype() ~= bool then
+      return assertTerra(`false, desc, 1)
+    end
+    return assertTerra(`v == true, desc, 1)
+  else 
+    TT.assert(type(v) == "boolean" and v == true, desc, 1)
   end
 end
 
-function TT.assert.falsy(...)
-  for i,v in ipairs({...}) do
-    TT.assert(not (v ~= false and v ~= nil), "Expected falsy value.\nPassed in: (" .. getTypeString(v) .. ")\n" .. tostring(v))
+function TT.assert.is_false(v)
+  local desc = "Expected boolean false value, but got (" .. getTypeString(v) .. ") " .. tostring(v)
+  if terralib.isquote(v) then
+    if v:gettype() ~= bool then
+      return assertTerra(`false, desc, 1)
+    end
+    return assertTerra(`v == false, desc, 1)
+  else 
+    TT.assert(type(v) == "boolean" and v == false, desc, 1)
   end
+end
+
+function TT.assert.truthy(v)
+  local desc = "Expected truthy value.\nPassed in: (" .. getTypeString(v) .. ")\n" .. tostring(v)
+  if terralib.isquote(v) then
+    return assertTerra(`[bool](v) == true, desc, 1)
+  else
+    TT.assert(v ~= false and v ~= nil, desc, 1)
+  end
+end
+
+function TT.assert.falsy(v)
+  local desc = "Expected falsy value.\nPassed in: (" .. getTypeString(v) .. ")\n" .. tostring(v)
+  if terralib.isquote(v) then
+    return assertTerra(`[bool](v) == false, desc, 1)
+  else
+    TT.assert(not (v ~= false and v ~= nil), desc, 1)
+  end
+end
+
+-- Basic deep comparison, can't handle cycles
+function deepCompare(l, r)
+  if type(l) ~= "table" or type(r) ~= "table" then
+    return l == r
+  end
+  if rawequal(l, r) then
+    return true
+  end
+
+  for k,v in next, l do
+    if not deepCompare(v, r[k]) then
+      return false
+    end
+  end
+  for k,v in next, r do
+    if l[k] == nil then return false end
+  end
+
+  return true
+end
+
+function terraCompare(l, r, noteq)
+  if not terralib.isquote(l) or not terralib.isquote(r) then
+    return `[noteq]
+  end
+  local lt = l:gettype()
+  local rt = r:gettype()
+  if (lt.convertible == "tuple" and rt.convertible == "tuple") or (lt == rt and lt:isstruct()) then
+    local self_entries = lt:getentries()
+    return quote
+      escape
+        local acc = `true
+        for i, ent in ipairs(self_entries) do
+          acc = `[acc] and [terraCompare(`l.[self_entries[i].field], `r.[self_entries[i].field], noteq)]
+        end
+      end
+    end
+  end
+  if lt:ispointer() and rt == niltype then
+    rt = lt
+  end
+  if lt == niltype and rt:ispointer() then
+    lt = rt
+  end
+  
+  if lt ~= rt and (not lt:isarithmetic() or not rt:isarithmetic()) then
+    return `[noteq]
+  end
+  if noteq then
+    return `[l] ~= [r]
+  end
+  return `[l] == [r]
+end
+
+-- trim6 from http://lua-users.org/wiki/StringTrim
+local function trim(s)
+   return s:match'^()%s*$' and '' or s:match'^%s*(.*%S)'
 end
 
 function TT.assert.equal(l, ...)
   for i,v in ipairs({...}) do
-    TT.assert(l == v, 
+    local desc = 
       "Expected objects to be equal.\nPassed in: (" .. getTypeString(v) .. ")\n" .. 
-      tostring(v) .. 
+      trim(tostring(v)) .. 
       "\nExpected: (" .. getTypeString(l) .. ")\n" .. 
-      tostring(l))
+      trim(tostring(l))
+
+    if terralib.isquote(v) then
+      return assertTerra(terraCompare(l, v, false), desc)
+    else
+      TT.assert(deepCompare(l, v), desc, 1)
+    end
   end
 end
 
-function TT.assert.error(f, expected)
+function TT.assert.fail(f, expected)
   local ok, err_actual = pcall(f)
-  TT.assert(not ok, "Expected an error but didn't get one!")
+  TT.assert(not ok, "Expected an error but didn't get one!", 1)
   if not ok and expected ~= nil then
-    TT.assert(l == v, " Expected error:\n" .. expected .. "\nFound:\n" .. err_actual)
+    TT.assert(deepCompare(expected, err_actual), " Expected error:\n" .. tostring(expected) .. "\nFound:\n" .. tostring(err_actual), 1)
   end
 end
 
 function TT.assert.success(f)
   local ok, err_actual = pcall(f)
-  TT.assert(ok, "Did not expect an error, but got: " .. err_actual)
+  if not ok then
+    TT.assert(ok, "Did not expect an error, but got: " .. err_actual, 1)
+  end
 end
 
 function TT.assert.unique(...)
   for i,v in ipairs({...}) do
     for i2, v2 in pairs({...}) do
-      if i ~= i2 then
-        TT.assert(v ~= v2, tostring(i) .. " and " .. tostring(i2) .. " should be unique, but both are (" .. getTypeString(v) .. ") " .. tostring(v))
+      if i ~= i2 and type(v) == type(v2) then
+        local desc = tostring(i) .. " and " .. tostring(i2) .. " should be unique, but both are (" .. getTypeString(v) .. ") " .. tostring(v)
+        if terralib.isquote(v) then
+          return assertTerra(terraCompare(v, v2, true), desc)
+        else
+          TT.assert(not deepCompare(v, v2), desc, 1)
+        end
       end
     end
   end
 end
 
+TT.assert.is_true = macro(TT.assert.is_true, TT.assert.is_true)
+TT.assert.is_false = macro(TT.assert.is_false, TT.assert.is_false)
 TT.assert.truthy = macro(TT.assert.truthy, TT.assert.truthy)
 TT.assert.falsy = macro(TT.assert.falsy, TT.assert.falsy)
-TT.assert.same = macro(TT.assert.same, TT.assert.same)
 TT.assert.equal = macro(TT.assert.equal, TT.assert.equal)
-TT.assert.error = macro(TT.assert.error, TT.assert.error)
+TT.assert.fail = macro(TT.assert.fail, TT.assert.fail)
 TT.assert.success = macro(TT.assert.success, TT.assert.success)
 TT.assert.unique = macro(TT.assert.unique, TT.assert.unique)
 
@@ -149,10 +278,11 @@ local DefaultConfig = {
   }
 }
 
-local function RunTest(path)
+local function RunTest(path, folder)
   local res, err = terralib.loadfile(ffi.string(path))
   if not res then print(err) end
   TT.stack = {}
+  TT.ROOT_DIR = ffi.string(folder)
   setfenv(res, TT)
   res, err = xpcall(res, function(err)
         print(err)
@@ -161,25 +291,20 @@ local function RunTest(path)
   if not res then print(err) end
 end
 
-local runtest_t = terralib.cast(rawstring -> {}, RunTest)
+local runtest_t = terralib.cast({rawstring, rawstring} -> {}, RunTest)
 
 terra CallTest(folder : rawstring, root : rawstring) : rawstring
-  var s : FS.path
-  O.construct(s)
-  s:append(folder)
-  s:append(root)
-
-  var path : FS.path
-  O.construct(path)
-  path:append(s)
-  path:append("*.t")
-
-  for i in FS.dir(path) do    
-    var file : FS.path
-    O.construct(file)
-    file:append(s)
-    file:append(i.filename)
-    runtest_t(file)
+  var s = O.new(FS.path, folder) / root
+  
+  for i in FS.dir(s / "*") do
+    if i.folder then
+      CallTest(s, i.filename)
+    else
+      var file = s / i.filename
+      if C.strcmp(file:extension(), "t") == 0 then
+        runtest_t(file, s.s)
+      end
+    end
   end
 end
 
@@ -252,6 +377,8 @@ function ProcessArgs(args)
 end
 
 ProcessArgs(arg)
+runtest_t:free()
+runassert_t:free()
 
 local diff = Time.Clock() - TT.start
 print((TT.total - TT.failed - TT.errored) .. " successes / " .. TT.failed .. " failures / " .. TT.errored .. " errors : " .. string.format("%3.3f seconds", diff))
