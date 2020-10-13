@@ -119,7 +119,7 @@ describe("filesystem", function()
   it("should iterate through a directory", terra()
     var count = 0
 
-    for i in FS.dir(O.new(FS.path, ROOT_DIR) / "*") do
+    for i in FS.dir(ROOT_DIR) do
       assert.unique(i.filename[0], 0)
       count = count + 1
     end

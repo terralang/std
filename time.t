@@ -49,38 +49,37 @@ C = terralib.includecstring [[
 
 #ifdef _POSIX_MONOTONIC_CLOCK
 #ifdef CLOCK_MONOTONIC_RAW
-int T_POSIX_CLOCK = CLOCK_MONOTONIC_RAW
+const int T_POSIX_CLOCK = CLOCK_MONOTONIC_RAW;
 #else
-int T_POSIX_CLOCK = CLOCK_MONOTONIC
+const int T_POSIX_CLOCK = CLOCK_MONOTONIC;
 #endif
 #else
-int T_POSIX_CLOCK = CLOCK_REALTIME
+const int T_POSIX_CLOCK = CLOCK_REALTIME;
 #endif
 
 #ifdef _POSIX_CPUTIME
-int T_POSIX_CLOCK_PROFILER = CLOCK_PROCESS_CPUTIME_ID
+const int T_POSIX_CLOCK_PROFILER = CLOCK_PROCESS_CPUTIME_ID;
 #else
-int T_POSIX_CLOCK_PROFILER = T_POSIX_CLOCK
-#endif
+const int T_POSIX_CLOCK_PROFILER = T_POSIX_CLOCK;
 #endif
 ]]
 
 local terra queryTime(clock : C.clockid_t) : uint64
   var tspec : C.timespec
   C.clock_gettime(clock, &tspec)
-  return (([uint64](tspec.tv_sec)) * 1000000000) + [uint64_t](tspec.tv_nsec)
+  return (([uint64](tspec.tv_sec)) * 1000000000) + [uint64](tspec.tv_nsec)
 end
 
 terra T.OpenProfiler() : uint64
-  return queryTime(T_POSIX_CLOCK_PROFILER)
+  return queryTime(C.T_POSIX_CLOCK_PROFILER)
 end
 
 terra T.CloseProfiler(start : uint64) : uint64
-  return queryTime(T_POSIX_CLOCK_PROFILER) - start
+  return queryTime(C.T_POSIX_CLOCK_PROFILER) - start
 end
 
 terra T.ClockNS() : uint64
-  return queryTime(T_POSIX_CLOCK)
+  return queryTime(C.T_POSIX_CLOCK)
 end
 end
 

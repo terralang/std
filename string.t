@@ -227,7 +227,7 @@ String.methods.Format = O.destroy(terra(format : rawstring, ...) : String
   var s = Alloc.alloc(int8, len + 1)
   var vl2 : C.va_list -- vsnprintf will have modified vl so we need a new one
   va_start([&int8](&vl2))
-  C.vsnprintf(s, len + 1, format, vl);
+  C.vsnprintf(s, len + 1, format, vl2);
   va_end([&int8](&vl2))
 
   return String{s}

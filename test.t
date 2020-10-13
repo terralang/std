@@ -6,7 +6,7 @@ for k,v in pairs(oldenv) do
   TT[k] = v
 end
 
-package.terrapath = package.terrapath .. '../?.t'
+package.terrapath = package.terrapath .. ';../?.t'
 local FS = require 'std.fs'
 local O = require 'std.object'
 local ffi = require 'ffi'
@@ -296,7 +296,7 @@ local runtest_t = terralib.cast({rawstring, rawstring} -> {}, RunTest)
 terra CallTest(folder : rawstring, root : rawstring) : rawstring
   var s = O.new(FS.path, folder) / root
   
-  for i in FS.dir(s / "*") do
+  for i in FS.dir(s) do
     if i.folder then
       CallTest(s, i.filename)
     else

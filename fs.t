@@ -2,7 +2,11 @@ local Iterator = require 'std.iterator'
 local O = require 'std.object'
 local Alloc = require 'std.alloc'
 local ffi = require 'ffi'
+
 local C = nil
+local C2 = nil
+local F = {}
+
 if ffi.os == "Windows" then
 C = terralib.includecstring [[
 #include <string.h>
@@ -38,19 +42,22 @@ LONGLONG ToUnixTimestamp(FILETIME ft)
 
 ]]
 else
-C = terralib.includecstring [[
+C, C2 = terralib.includecstring [[
 #include <sys/types.h>  // stat().
 #include <sys/stat.h>   // stat().
 #include <dirent.h>
 #include <unistd.h> // rmdir()
 #include <ftw.h>
+#include <string.h>
+#include <stdio.h> // for remove()
 
-bool _T_ISDIR(m) { return S_ISDIR(m); }
+char _T_ISDIR(m) { return S_ISDIR(m); }
+time_t get_atime(struct stat* st) { return st->st_atime; }
+time_t get_mtime(struct stat* st) { return st->st_mtime; }
 
-int _deldir_func(const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftwbuf)
+int _deldir_func(const char *fpath, const struct stat *sb, int typeflag)
 {
-  assert(typeflag!=FTW_D); //shouldn't happen because we set FTW_DEPTH
-  if(typeflag==FTW_DP)
+  if(typeflag==FTW_D)
     return rmdir(fpath);
   if(typeflag==FTW_F)
     return unlink(fpath);
@@ -58,8 +65,6 @@ int _deldir_func(const char *fpath, const struct stat *sb, int typeflag, struct 
 }
 ]]
 end
-
-local F = {}
 
 local replaceChar = terralib.overloadedfunction("replaceChar",
 { terra(s : rawstring, from : int8, to : int8) : {}
@@ -472,10 +477,22 @@ if ffi.os == "Windows" then
     return terralib.select(folder, attr ~= 0, attr == 0)
   end
 else
-
+  local S_IFDIR = constant(C.mode_t, 0x4000)
+  local S_IFLNK = constant(C.mode_t, 0xA000)
+  
+  local terra translatefileinfo(st : &C2.stat) : F.Info
+    return F.Info{true, 
+      (st.st_mode and S_IFDIR) == S_IFDIR,
+      (st.st_mode and S_IFLNK) == S_IFLNK,
+      st.st_size,
+      C.get_mtime(st),
+      C.get_atime(st),
+      nil }
+  end
+  
   terra F.attributes(p : rawstring) : F.Info
-    var st : C.stat
-    if C.stat(path, &st) ~= 0 then
+    var st : C2.stat
+    if C.stat(p, &st) ~= 0 then
       return F.Info{false}
     end
 
@@ -507,21 +524,21 @@ else
     end
     
     return quote
-      if p.handle ~= nil then
-        var p : F.Directory = iter
-        defer freehandle(p.handle) -- in case the loop terminates early
-
-        var st : C.stat
-        var dent : &C.dirent = readdir(p.handle)
+      var p = iter.handle
+      defer freehandle(p) -- in case the loop terminates early
+      
+      if p ~= nil then
+        var st : C2.stat
+        var dent : &C.dirent = C.readdir(p)
 
         while dent ~= nil do
-          if C.strcmp(dent.d_name, ".") ~= 0 and C.strcmp(dent.d_name, "..") ~= 0 and C.fstatat(C.dirfd(p.handle), dent.d_name, &st, 0) == 0 then
+          if C.strcmp(dent.d_name, ".") ~= 0 and C.strcmp(dent.d_name, "..") ~= 0 and C.fstatat(C.dirfd(p), dent.d_name, &st, 0) == 0 then
             var info = translatefileinfo(&st)
             info.filename = dent.d_name
             [body(`info)]
           end
           
-          dent = readdir(p.handle)
+          dent = C.readdir(p)
         end
       end
     end
@@ -536,15 +553,15 @@ else
   end
 
   terra F.rmdir(p : rawstring) : bool
-    return C.nftw(p,&C._deldir_func, 20, C.FTW_DEPTH) == 0
+    return C.ftw(p,C._deldir_func, 20) == 0
   end
 
   terra F.exists(p : rawstring, folder : bool) : bool
-    var st : C.stat
-    if C.stat(path, &st) ~= 0 then
+    var st : C2.stat
+    if C.stat(p, &st) ~= 0 then
       return false
     end
-    return C._T_ISDIR(st.st_mode)^folder
+    return (C._T_ISDIR(st.st_mode)^terralib.select(folder, 1, 0)) == 0
   end
 
 end
