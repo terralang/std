@@ -402,12 +402,13 @@ if ffi.os == "Windows" then
   end
 
   terra F.dir(p : rawstring) : F.Directory
-    var s = towchar(p, 1, 0)
+    var s = towchar(p, 2, 0)
     defer Alloc.free(s)
-    replaceChar(s, ('\\')[0], ('/')[0])
+    replaceChar(s, ('/')[0], ('\\')[0])
     var len = C.wcslen(s)
-    s[len] = ('*')[0]
-    s[len + 1] = 0
+    s[len] = ('\\')[0]
+    s[len + 1] = ('*')[0]
+    s[len + 2] = 0
     var d : F.Directory
     d.handle = C.FindFirstFileW(s, &d.ffd)
     return d
