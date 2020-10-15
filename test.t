@@ -185,14 +185,11 @@ function terraCompare(l, r, noteq)
   local rt = r:gettype()
   if (lt.convertible == "tuple" and rt.convertible == "tuple") or (lt == rt and lt:isstruct()) then
     local self_entries = lt:getentries()
-    return quote
-      escape
-        local acc = `true
-        for i, ent in ipairs(self_entries) do
-          acc = `[acc] and [terraCompare(`l.[self_entries[i].field], `r.[self_entries[i].field], noteq)]
-        end
-      end
+    local acc = `true
+    for i, ent in ipairs(self_entries) do
+      acc = `[acc] and [terraCompare(`l.[self_entries[i].field], `r.[self_entries[i].field], noteq)]
     end
+    return `[acc]
   end
   if lt:ispointer() and rt == niltype then
     rt = lt

@@ -12,7 +12,11 @@ describe("test", function()
         assert.equal({1,{"z","a"},3}, {1,{"z","a"},3})
       end)
 
+      struct BazIt { i : int }
       it("should test equality in terra", terra()
+        var a = BazIt{1}
+        var b = BazIt{1}
+        assert.equal(a,b)
         assert.equal(1,1)
         assert.equal(4ULL,4U,4,4)
         assert.equal(2.4, 2.4)
