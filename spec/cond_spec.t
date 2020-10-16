@@ -6,8 +6,8 @@ describe("cond", function()
                   return cond(c, a, b)
                 end
 
-                assert.is.truthy(simpletest(true, 1, 2) == 1)
-                assert.is.truthy(simpletest(false, 1, 2) == 2)
+                assert.truthy(simpletest(true, 1, 2) == 1)
+                assert.truthy(simpletest(false, 1, 2) == 2)
            end)
 
            it("should be variadic", function()

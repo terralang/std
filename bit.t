@@ -52,7 +52,7 @@ M.smallest_ge_pow2_b = template(function(T)
       else
         var v = escape
           local acc = `x-1
-          for i = 1, math.log( (T:isvector() and terralib.sizeof(T.type) or terralib.sizeof(T)) * 8, 2 ) do
+          for i = 0, math.log( (T:isvector() and terralib.sizeof(T.type) or terralib.sizeof(T)) * 8, 2 ) - 1 do
             acc = quote var v = [acc] in (v >> [2 ^ i]) or v end
           end
           emit(acc)
