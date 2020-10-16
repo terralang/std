@@ -1,6 +1,5 @@
 local CT = require 'std.constraint'
 local Iterator = require 'std.iterator'
-local C = terralib.includecstring [[#include <stdio.h>]]
 local L = {}
 
 local function Insert(node, target, nextsym, prevsym, root)
