@@ -187,9 +187,14 @@ function terraCompare(l, r, noteq)
     local self_entries = lt:getentries()
     local acc = `true
     for i, ent in ipairs(self_entries) do
-      acc = `[acc] and [terraCompare(`l.[self_entries[i].field], `r.[self_entries[i].field], noteq)]
+      local result = terraCompare(`l.[self_entries[i].field], `r.[self_entries[i].field], noteq)
+      if noteq then
+        acc = `[acc] or [result]
+      else
+        acc = `[acc] and [result]
+      end
     end
-    return `[acc]
+    return acc
   end
   if lt:ispointer() and rt == niltype then
     rt = lt
@@ -201,6 +206,18 @@ function terraCompare(l, r, noteq)
   if lt ~= rt and (not lt:isarithmetic() or not rt:isarithmetic()) then
     return `[noteq]
   end
+  if lt:isarray() then
+    local acc = `true
+    for i=0,lt.N-1 do
+      if noteq then
+        acc = `[acc] or [l][ [i] ] ~= [r][ [i] ]
+      else
+        acc = `[acc] and [l][ [i] ] == [r][ [i] ]
+      end
+    end
+    return acc
+  end
+
   if noteq then
     return `[l] ~= [r]
   end
@@ -257,6 +274,8 @@ function TT.assert.unique(...)
     end
   end
 end
+
+function TT.assert.unreachable() TT.assert(false, "Should never reach this point!", 1) end
 
 TT.assert.is_true = macro(TT.assert.is_true, TT.assert.is_true)
 TT.assert.is_false = macro(TT.assert.is_false, TT.assert.is_false)

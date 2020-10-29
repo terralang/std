@@ -30,6 +30,23 @@ describe("bit module",
                 end
            end)
 
+           it("should compute count of trailing zeros", function()
+                local terra test(x: int) return bit.cttz(x) end
+                for i = 1, 10 do
+                  assert.equal(i, test(2 ^ i))
+                end
+           end)
+
+           it("should compute number of set bits", function()
+                local terra test(x: int) return bit.ctpop(x) end
+                for i = 1, 10 do
+                  assert.equal(1, test(2 ^ i))
+                end
+                assert.equal(2, test(3))
+                assert.equal(3, test(7))
+                assert.equal(5, test(8913988))
+           end)
+
            it("should be able to check if something is a power of two", function()
                 local terra test(x: int) return bit.is_pow2(x) end
                 for i = 1, 500 do
