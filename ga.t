@@ -69,6 +69,7 @@ multivector = function(ty, c)
     local terra bitsetsign(a : int, b : int) : int
       var swapcount = 0
       var bscan = 0
+      a = a >> 1
       while a ~= 0 and b ~= 0 do
         swapcount = swapcount + ((a and 1) * bscan)
         bscan = bscan + (b and 1)
@@ -161,16 +162,17 @@ multivector = function(ty, c)
 
       local components = {}
       tableunion(xbasis, ybasis, function(k) table.insert(components, k) end)
+      local tresult = multivector(T, components)
       return quote
-        var m : multivector(T, components)
+        var m : tresult
         escape
-          for k,i in pairs(m:gettype().metamethods.basis) do
+          for k,i in pairs(tresult.metamethods.basis) do
             if not xbasis[k] then
-              emit(quote m.v[i] = y.v[ybasis[k]] end)
+              emit(quote m.v[i] = y.v[ [ybasis[k]] ] end)
             elseif not ybasis[k] then
-              emit(quote m.v[i] = x.v[xbasis[k]] end)
+              emit(quote m.v[i] = x.v[ [xbasis[k]] ] end)
             else
-              emit(quote m.v[i] = x.v[xbasis[k]] + y.v[ybasis[k]] end)
+              emit(quote m.v[i] = x.v[ [xbasis[k]] ] + y.v[ [ybasis[k]] ] end)
             end
           end
         end

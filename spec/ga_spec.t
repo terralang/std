@@ -63,11 +63,11 @@ describe("Multivector", function()
     end
 
     do
-      --var a : float = GA2.vector(2,0)*GA2.vector(0,3)
-      --assert.equal(a, 0.0f)
+      var a = GA2.vector(2,0)*GA2.vector(0,3)
+      assert.equal(a, GA2.bivector(6))
 
-      --var b = GA2.vector(2,3)*GA2.vector(4,5)
-      --assert.equal(b, GA2.scalar(23) - GA2.bivector(2))
+      var b = GA2.vector(2,3)*GA2.vector(4,5)
+      assert.equal(b, GA2.scalar(23) - GA2.bivector(2))
     end
   end)
 
