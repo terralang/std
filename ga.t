@@ -1,10 +1,26 @@
 local tableintersect = require 'std.meta.tableintersect'
 local tableunion = require 'std.meta.tableunion'
 local bits = require 'std.bit'
+local String = require 'std.string'
+local Math = require 'std.math'
 local G = {}
 local multivector
 local memoize = {}
 local memovalues = {}
+local C = terralib.includecstring [[#include <stdio.h>]]
+
+local terra bitsetsign(xs : int, ys : int) : int
+  var swapcount = 0
+  var bscan = 0
+  xs = xs >> 1
+  while xs ~= 0 or ys ~= 0 do
+    bscan = bscan + (ys and 1) -- current count of unique basis in ys
+    swapcount = swapcount + ((xs and 1) * bscan)
+    xs = xs >> 1
+    ys = ys >> 1
+  end
+  return terralib.select(swapcount % 2 == 0, 1, -1)
+end
 
 multivector = function(ty, c)
   local inner = function(T, Components)
@@ -31,6 +47,16 @@ multivector = function(ty, c)
     
     local terra countbits(x : int) : int return bits.ctpop(x) end
 
+    local function prettycomponent(x) 
+      local r = "e"
+      for i = 0,31 do
+        if bit.band(x,2^i) ~= 0 then
+          r = r .. tostring(i)
+        end
+      end
+      return r
+    end
+
     s.metamethods.__typename = function(self)
       local grade = countbits(self.metamethods.set)
       if grade == 0 then
@@ -39,13 +65,7 @@ multivector = function(ty, c)
 
       local prettybasis = {}
       for i,v in ipairs(Components) do
-        local r = "e"
-        for i = 0,N-1 do
-          if b and (2^i) then
-            r = r .. tostring(i)
-          end
-        end
-        table.insert(prettybasis, r)
+        table.insert(prettybasis, prettycomponent(v))
       end
 
       return ("%d-Vector(%s)<%s>"):format(grade, table.concat(prettybasis, "+"), tostring(self.metamethods.type))
@@ -66,26 +86,17 @@ multivector = function(ty, c)
       return x
     end
 
-    local terra bitsetsign(a : int, b : int) : int
-      var swapcount = 0
-      var bscan = 0
-      a = a >> 1
-      while a ~= 0 and b ~= 0 do
-        swapcount = swapcount + ((a and 1) * bscan)
-        bscan = bscan + (b and 1)
-        a = a >> 1
-        b = b >> 1
-      end
-      return terralib.select(bscan % 2 == 0, 1, -1)
-    end
-
     terra s:norm() : T
       escape
-        local acc = `0
+        local acc = `[T](0)
         for i = 0,N-1 do
           acc = `[acc] + self.v[i]*self.v[i]
         end
-        return acc
+        if T == float then
+          emit(quote return Math.sqrt_32(acc) end)
+        else
+          emit(quote return Math.sqrt_64([double](acc)) end)
+        end
       end
     end
 
@@ -104,22 +115,61 @@ multivector = function(ty, c)
       return [s.metamethods.set]
     end
 
-    terra s:grade() : int
-      return bits.ctpop([s.metamethods.set])
+    local terra ctpop(x : int) : int
+      return bits.ctpop(x)
     end
 
-    s.methods.dot = macro(function(self, b)
-      local basis = b:gettype().metamethods.basis
-      if not basis then
-        error(tostring(b) .. " is not a multivector!")
+    terra s:grade() : int
+      return ctpop([s.metamethods.set])
+    end
+
+    local function product(x, y, check)
+      if x == nil or y == nil then
+        error("Cannot pass nil into product!")
+      end
+      x = convertscalar(x)
+      y = convertscalar(y)
+      local xbasis = getbasis(x)
+      local ybasis = getbasis(y)
+      -- multiply every component with every other component, only keep ones that satisfy check()
+      local results = {}
+      --local debugging = {}
+      for xb,xi in pairs(xbasis) do
+        for yb,yi in pairs(ybasis) do
+          local basis = bit.bxor(xb,yb)
+          if check(basis,xb,yb) then
+            if results[basis] == nil then
+              results[basis] = `0
+            end
+            --table.insert(debugging, quote C.printf(["%g" .. xi .. "_" ..  prettycomponent(xb) .. "|" .. xb .. " * %g".. yi .. "_" .. prettycomponent(yb).. "|" .. yb  .." = (" .. bitsetsign(xb, yb) .. ")%g_" .. prettycomponent(basis) .. "\n"], x.v[xi], y.v[yi], x.v[xi]*y.v[yi]) end)
+            results[basis] = `[ results[basis] ] + [bitsetsign(xb, yb)]*x.v[xi]*y.v[yi]
+          end
+        end
       end
 
-      local acc = `0
-      tableintersect(s.metamethods.basis, basis, function(k)
-        acc = `[acc] + self.v[ [s.metamethods.basis[k]] ]*b.v[ [basis[k]] ]
-      end)
-      return acc
-    end)
+      local components = {}
+      for k,v in pairs(results) do table.insert(components, k) end
+      return quote
+        var m : multivector(T, components)
+        escape
+          --for i,v in ipairs(debugging) do emit(v) end
+          local basis = m.type.metamethods.basis
+          for k,q in pairs(results) do
+            emit(quote m.v[ [basis[k]] ] = [q] end)
+          end
+        end
+      in
+        m
+      end
+    end
+
+    -- Dot product only keeps components with the same grade
+    s.methods.dot = macro(function(x, y) return product(x,y, function(basis, xb, yb) return ctpop(basis) == (ctpop(yb) - ctpop(xb)) end) end)
+    -- Wedge product keeps all components that aren't in the dot product
+    s.methods.wedge = function(x, y) return product(x,y, function(basis, xb, yb) return ctpop(basis) ~= (ctpop(yb) - ctpop(xb)) end) end
+    
+    s.metamethods.__xor = macro(function(self, v) return s.methods.wedge(self,v) end)
+    s.methods.wedge = macro(s.methods.wedge, s.methods.wedge)
 
     terra s.metamethods.__eq(a : s, b : s) : bool
       -- Because a and b are the same type, all the component basis vectors must match
@@ -145,14 +195,6 @@ multivector = function(ty, c)
       end
       return res
     end
-    
-    -- wedge product (turned into a macro below)
-    s.methods.wedge = function(a, b)
-
-    end
-    
-    s.metamethods.__xor = macro(function(self, v) return s.methods.wedge(self,v) end)
-    s.methods.wedge = macro(s.methods.wedge)
 
     s.metamethods.__add = macro(function(x, y)
       x = convertscalar(x)
@@ -182,49 +224,42 @@ multivector = function(ty, c)
     end)
 
     s.metamethods.__sub = macro(function(x, y) return `x + (-y) end)
-    
-    s.metamethods.__mul = macro(function(x, y)
-      x = convertscalar(x)
-      y = convertscalar(y)
-      local xbasis = getbasis(x)
-      local ybasis = getbasis(y)
-      -- multiply every component with every other component
-      local results = {}
-      for xb,xi in pairs(xbasis) do
-        for yb,yi in pairs(ybasis) do
-          local basis = bit.bxor(xb,yb)
-          if results[basis] == nil then
-            results[basis] = `0
+    s.metamethods.__mul = macro(function(x, y) return product(x, y, function() return true end) end)
+
+    -- Performs a clifford conjugation: https://math.stackexchange.com/questions/3459273/why-is-the-clifford-conjugate-and-norm-defined-the-way-it-is
+    terra s:conjugate() : s
+      var v : s = @self
+      escape
+        for k,i in pairs(s.metamethods.basis) do
+          if (ctpop(k) % 2) ~= 0 then
+            emit(quote v.v[i] = -v.v[i] end)
           end
-          results[basis] = `[results[basis]] + [bitsetsign(xb, yb)]*x.v[xi]*y.v[yi]
+          if ((k * (k-1))/2) ~= 0 then
+            emit(quote v.v[i] = -v.v[i] end)
+          end
         end
       end
+      return v
+    end
 
-      local components = {}
-      for k,v in pairs(results) do table.insert(components, k) end
-      return quote
-        var m : multivector(T, components)
-        escape
-          local basis = m.type.metamethods.basis
-          for k,q in pairs(results) do
-            emit(quote m.v[ [basis[k]] ] = [q] end)
-          end
-        end
-      in
-        m
+    local function divide(x,y)
+      local values = {}
+      for i=0,x:gettype().metamethods.N-1 do
+        table.insert(values, `x.v[i] / y)
+      end
+      return `s{array(values)}
+    end
+
+    s.metamethods.__div = macro(function(x,y)
+      x = convertscalar(x)
+      y = convertscalar(y)
+      if y:gettype().metamethods.N == 1 and y:gettype().metamethods.basis[0] == 0 then
+        return divide(x, `y.v[0])
+      else
+        return `x * y:inverse()
       end
     end)
 
-    terra s:conjugate() : s
-
-    end
-
-    terra s:inverse() : s
-      --return -self:normalize()
-    end
-    
-    s.metamethods.__div = macro(function(x, y) return `x * y:inverse() end)
-    
     s.metamethods.__cast = function(from, to, exp)
       if from:isarithmetic() and to == s and s.metamethods.N == 1 and s.metamethods.basis[0] == 0 then
         return `s{array([T]([exp]))}
@@ -235,6 +270,24 @@ multivector = function(ty, c)
       error(("unknown conversion %s to %s"):format(tostring(from),tostring(to)))
     end
 
+    --terra s:multiply(b : s) : s 
+    --  return [macro(function(x, y) return product(x, y, function() return true end) end)](@self,b)
+    --end
+
+    terra s:inverse() : s
+      var v : s = @self
+      return v
+      --escape terralib.printraw(n) end
+      --return [divide(`self:conjugate(), `n.v[0])]
+    end
+    
+    s.methods.tostring = macro(function(self)
+      local str = ""
+      for i=1,N do str = str .. "%g_" .. prettycomponent(Components[i]) .. " " end
+      local args = {}
+      for i=0,N-1 do table.insert(args, `self.v[ [i] ]) end
+      return `String.Format([str], [args])
+    end)
     return s
   end
 
@@ -255,6 +308,7 @@ multivector = function(ty, c)
     memovalues[key] = inner(ty, c)
   end
   return memovalues[key]
+  
 end
 
 -- This function represents a parameterized GA vector space of type T and dimensions N, which then contains appropriate basis elements and vector/bivector constructors
@@ -296,13 +350,26 @@ function GA(T, N)
     end)
   end
 
+  ga.exp = macro(function(v)
+    return quote
+      var i = v:normalize()
+      var th = v:norm()
+    in
+      (Math.cos(th) + i*Math.sin(th))
+    end
+  end)
+  
   -- pretty name aliases
   if ga.vector1 ~= nil then ga.vector = ga.vector1 end
   if ga.vector2 ~= nil then ga.bivector = ga.vector2 end
   if ga.vector3 ~= nil then ga.trivector = ga.vector3 end
   if ga.vector4 ~= nil then ga.quadvector = ga.vector4 end
 
+  ga.bitsetsign = bitsetsign
   ga.multivector = macro(function(c) return multivector(T, c) end, function(c) return multivector(T, c) end)
+  ga.PS = `[multivector(T, kvectors[N])]{array([T](1))}
+  ga.invPS = `[multivector(T, kvectors[N])]{array([T](1))}
+  
   return ga
 end
 

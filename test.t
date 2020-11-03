@@ -11,6 +11,7 @@ local FS = require 'std.fs'
 local O = require 'std.object'
 local ffi = require 'ffi'
 local Time = require 'std.time'
+local Math = require 'std.math'
 local C = terralib.includecstring [[
 #include <stdlib.h>
 #include <stdio.h>
@@ -275,6 +276,23 @@ function TT.assert.unique(...)
   end
 end
 
+function TT.assert.near(l, r, epsilon)
+  if not epsilon then
+    epsilon = 0.000001
+  end
+    local desc = 
+      "Expected objects to be nearly equal.\nPassed in: (" .. getTypeString(r) .. ")\n" .. 
+      trim(tostring(r)) .. 
+      "\nExpected: (" .. getTypeString(l) .. ")\n" .. 
+      trim(tostring(l))
+
+  if terralib.isquote(r) then
+    return assertTerra(`Math.abs(r - l) < [l:gettype()]([epsilon]), desc)
+  else
+    TT.assert(math.abs(l - r) < epsilon, desc, 1)
+  end
+end
+
 function TT.assert.unreachable() TT.assert(false, "Should never reach this point!", 1) end
 
 TT.assert.is_true = macro(TT.assert.is_true, TT.assert.is_true)
@@ -285,6 +303,7 @@ TT.assert.equal = macro(TT.assert.equal, TT.assert.equal)
 TT.assert.fail = macro(TT.assert.fail, TT.assert.fail)
 TT.assert.success = macro(TT.assert.success, TT.assert.success)
 TT.assert.unique = macro(TT.assert.unique, TT.assert.unique)
+TT.assert.near = macro(TT.assert.near, TT.assert.near)
 
 local DefaultConfig = {
   default = {
