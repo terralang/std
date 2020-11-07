@@ -5,7 +5,6 @@ local GA3 = GA(float, 3)
 local GA4 = GA(float, 4)
 local GA2i = GA(int, 2)
 local Math = require 'std.math'
-local C = terralib.includecstring [[#include <stdio.h>]]
 
 describe("Multivector", function()
   it('should calculate the sign correctly', terra()
@@ -100,6 +99,22 @@ describe("Multivector", function()
       var b = GA2.vector(2,3)*GA2.vector(4,5)
       assert.equal(b, GA2.scalar(23) - GA2.bivector(2))
     end
+
+    do
+      var a = GA3.vector(2,0,0)*GA3.vector(0,3,0)
+      assert.equal(a, GA3.bivector(6,0,0))
+
+      var b = GA3.vector(2,3,4)*GA3.vector(5,6,7)
+      assert.equal(b, GA3.scalar(56) - GA3.bivector(3,6,3))
+    end
+
+    do
+      var a = GA4.vector(2,0,0,0)*GA4.vector(0,3,0,0)
+      assert.equal(a, GA4.bivector(6,0,0,0,0,0))
+
+      var b = GA4.vector(2,3,4,5)*GA4.vector(6,7,8,9)
+      assert.equal(b, GA4.scalar(110) - GA4.bivector(4,8,4,12,8,4))
+    end
   end)
 
   it('should invert vectors', terra()
@@ -127,15 +142,10 @@ describe("Multivector", function()
       var u = GA3.bivector(6, 7, 8)
       var v = u*u:inverse()
       assert.near(v.v[0], 1.0f)
-      
-      --var g = GA3.scalar(1) + GA3.vector(1,2,3) + GA3.trivector(1)
-      --var h = g*g:conjugate()
-      --var h = g*g:inverse()
-      --C.printf("%s\n", h:tostring())
-      
-      --var g = GA3.scalar(9.012345678) + GA3.vector(1.1,2.23,3.456) + GA3.bivector(4.7891,5.23456,6.789012) + GA3.trivector(7.3456789)
-      --var h = g*g:conjugate()
-      --C.printf("%s\n",h:tostring())
+
+      var g = GA3.scalar(9.012345678) + GA3.vector(1.1,2.23,3.456) + GA3.bivector(4.7891,5.23456,6.789012) + GA3.trivector(7.3456789)
+      var h = g*g:inverse()
+      assert.near(v.v[0], 1.0f)
     end
 
     do
@@ -151,14 +161,55 @@ describe("Multivector", function()
   end)
 
   it('should multiply bivectors with scalars', terra()
+    do
+      var a = GA2.bivector(2)*GA2.scalar(3)
+      assert.equal(a, GA2.bivector(6))
+    end
+
+    do
+      var a = GA3.bivector(3,4,5)*GA3.scalar(2)
+      assert.equal(a, GA3.bivector(6,8,10))
+    end
+
+    do
+      var a = GA4.bivector(3,4,5,6,7,8)*GA4.scalar(2)
+      assert.equal(a, GA4.bivector(6,8,10,12,14,16))
+    end
   end)
 
   it('should multiply bivectors with vectors', terra()
+    do
+      var a = GA2.bivector(2)*GA2.vector(3,4)
+      assert.equal(a, GA2.vector(8,-6))
+    end
 
+    do
+      var a = GA3.bivector(3,4,5)*GA3.vector(6,7,8)
+      assert.equal(a, GA3.vector(53,22,-59) + GA3.trivector(26))
+    end
+
+    do
+      var a = GA4.bivector(3,4,5,6,7,8)*GA4.vector(1,2,9,10)
+      assert.equal(a, GA4.vector(102,112,66,-92) + GA4.trivector(24,25,-6,3))
+    end
   end)
 
   it('should multiply bivectors with bivectors', terra()
+    do
+      var a = GA2.bivector(2)*GA2.bivector(3)
+      assert.equal(a, GA2.scalar(-6))
+    end
 
+    do
+      var a = GA3.bivector(3,4,5)*GA3.bivector(6,7,8)
+      assert.equal(a, GA3.scalar(-86) + GA3.bivector(3,-6,3))
+    end
+
+    do
+      var a = GA4.bivector(3,4,5,6,7,8)*GA4.bivector(9,10,11,12,13,14)
+      var c = GA4.scalar(-397) + GA4.bivector(12,0,12,-48,0,24) + GA4.vector4(118)
+      assert.truthy(a == c)
+    end
   end)
 
   it('should correctly rotate vectors', terra()
@@ -188,6 +239,33 @@ describe("Multivector", function()
     var f = GA3.bivector(1,2,3)
     assert.equal(f^f, [GA3.multivector({3,5,6})]{array(0.f,0.f,0.f)})
     assert.equal(GA3.vector(1,0,0)^GA3.vector(0,1,0), GA3.bivector(1,0,0))
+  end)
+
+  it('should allow accessing components via x/y/z/w', terra()
+    var v = GA4.scalar(1) + GA4.vector(2,3,4,5) + GA4.bivector(6,7,8,9,10,11) + GA4.trivector(12,13,14,15) + GA4.vector4(16)
+    assert.equal(v.x,2)
+    assert.equal(v.y,3)
+    assert.equal(v.z,4)
+    assert.equal(v.w,5)
+    assert.equal(v.xy,6)
+    assert.equal(v.xyz,12)
+    assert.equal(v.xyzw,16)
+  end)
+
+  it('should do grade projection correctly', terra()
+    var v = GA4.scalar(1) + GA4.vector(2,3,4,5) + GA4.bivector(6,7,8,9,10,11) + GA4.trivector(12,13,14,15) + GA4.vector4(16)
+    assert.equal(v:gradeproj(0), GA4.scalar(1))
+    assert.equal(v:gradeproj(1), GA4.vector(2,3,4,5))
+    assert.equal(v:gradeproj(2), GA4.bivector(6,7,8,9,10,11))
+    assert.equal(v:gradeproj(3), GA4.trivector(12,13,14,15))
+    assert.equal(v:gradeproj(4), GA4.vector4(16))
+  end)
+
+  it('should project and reject correctly', terra()
+    var v = GA3.vector(1,1,1)
+    var B = GA3.bivector(1,0,0) -- project on to xy-plane
+    assert.equal(v:project(B), GA3.vector(1,1,0))
+    assert.equal(v:reject(B), GA3.vector(0,0,1))
   end)
 
   it('should calculate volume correctly', terra()
