@@ -11,6 +11,7 @@ local FS = require 'std.fs'
 local O = require 'std.object'
 local ffi = require 'ffi'
 local Time = require 'std.time'
+local Math = require 'std.math'
 local C = terralib.includecstring [[
 #include <stdlib.h>
 #include <stdio.h>
@@ -187,9 +188,14 @@ function terraCompare(l, r, noteq)
     local self_entries = lt:getentries()
     local acc = `true
     for i, ent in ipairs(self_entries) do
-      acc = `[acc] and [terraCompare(`l.[self_entries[i].field], `r.[self_entries[i].field], noteq)]
+      local result = terraCompare(`l.[self_entries[i].field], `r.[self_entries[i].field], noteq)
+      if noteq then
+        acc = `[acc] or [result]
+      else
+        acc = `[acc] and [result]
+      end
     end
-    return `[acc]
+    return acc
   end
   if lt:ispointer() and rt == niltype then
     rt = lt
@@ -201,6 +207,18 @@ function terraCompare(l, r, noteq)
   if lt ~= rt and (not lt:isarithmetic() or not rt:isarithmetic()) then
     return `[noteq]
   end
+  if lt:isarray() then
+    local acc = `true
+    for i=0,lt.N-1 do
+      if noteq then
+        acc = `[acc] or [l][ [i] ] ~= [r][ [i] ]
+      else
+        acc = `[acc] and [l][ [i] ] == [r][ [i] ]
+      end
+    end
+    return acc
+  end
+
   if noteq then
     return `[l] ~= [r]
   end
@@ -258,6 +276,25 @@ function TT.assert.unique(...)
   end
 end
 
+function TT.assert.near(l, r, epsilon)
+  if not epsilon then
+    epsilon = 0.000001
+  end
+    local desc = 
+      "Expected objects to be nearly equal.\nPassed in: (" .. getTypeString(r) .. ")\n" .. 
+      trim(tostring(r)) .. 
+      "\nExpected: (" .. getTypeString(l) .. ")\n" .. 
+      trim(tostring(l))
+
+  if terralib.isquote(r) then
+    return assertTerra(`Math.abs(r - l) < [l:gettype()]([epsilon]), desc)
+  else
+    TT.assert(math.abs(l - r) < epsilon, desc, 1)
+  end
+end
+
+function TT.assert.unreachable() TT.assert(false, "Should never reach this point!", 1) end
+
 TT.assert.is_true = macro(TT.assert.is_true, TT.assert.is_true)
 TT.assert.is_false = macro(TT.assert.is_false, TT.assert.is_false)
 TT.assert.truthy = macro(TT.assert.truthy, TT.assert.truthy)
@@ -266,6 +303,7 @@ TT.assert.equal = macro(TT.assert.equal, TT.assert.equal)
 TT.assert.fail = macro(TT.assert.fail, TT.assert.fail)
 TT.assert.success = macro(TT.assert.success, TT.assert.success)
 TT.assert.unique = macro(TT.assert.unique, TT.assert.unique)
+TT.assert.near = macro(TT.assert.near, TT.assert.near)
 
 local DefaultConfig = {
   default = {
