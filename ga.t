@@ -1,12 +1,9 @@
-local tableintersect = require 'std.meta.tableintersect'
 local tableunion = require 'std.meta.tableunion'
 local bits = require 'std.bit'
 local String = require 'std.string'
 local Math = require 'std.math'
-local G = {}
 local memoize = {}
 local memovalues = {}
-local C = terralib.includecstring [[#include <stdio.h>]]
 
 local terra countbits(x : int) : int return bits.ctpop(x) end
 
@@ -43,10 +40,13 @@ end
 
 local function divide(x,y)
   local values = {}
-  for i=0,x:gettype().metamethods.N-1 do
-    table.insert(values, `x.v[i] / y)
+  if x:gettype().metamethods.N > 0 then
+    for i=0,x:gettype().metamethods.N-1 do
+      table.insert(values, `x.v[i] / y)
+    end
+    return `[x:gettype()]{array(values)}
   end
-  return `[x:gettype()]{array(values)}
+  return `x
 end
 
 local lookups = { x = 1, y = 2, z = 4, w = 8 }
@@ -83,7 +83,7 @@ local function setentry(entryname, expr, value)
 end
 
 local function typename(self)
-  if s.metamethods.grade == 0 then
+  if self.metamethods.grade == 0 then
     return ("Scalar<%s>"):format(tostring(self.metamethods.type))
   end
 
@@ -92,7 +92,7 @@ local function typename(self)
     table.insert(prettybasis, prettycomponent(v))
   end
 
-  return ("%d-Vector(%s)<%s>"):format(s.metamethods.grade, table.concat(prettybasis, "+"), tostring(self.metamethods.type))
+  return ("%d-Vector(%s)<%s>"):format(self.metamethods.grade, table.concat(prettybasis, "+"), tostring(self.metamethods.type))
 end
 
 -- To keep compile times down, we have to split out declaring the type with filling it out.
@@ -232,7 +232,8 @@ multivector = function(T, Components)
   s.metamethods.__typename = typename
   local N = s.metamethods.N
 
-  terra s:length() : T
+  -- The absolute magnitude used to normalize multivectors.
+  terra s:magnitude() : T
     escape
       local acc = `[T](0)
       for i = 0,N-1 do
@@ -247,20 +248,20 @@ multivector = function(T, Components)
   end
 
   terra s:normalize() : s
-    var length = self:length()
+    var magnitude = self:magnitude()
     var normalized : s
     escape
       for i = 0,N-1 do
-        emit(quote normalized.v[i] = self.v[i] / length end)
+        emit(quote normalized.v[i] = self.v[i] / magnitude end)
       end
     end
     return normalized
   end
 
 
-  -- The norm of an arbitrary multivector is itself times it's own conjugate
+  -- The norm of an arbitrary multivector is itself times it's own conjugate, but we only have an efficient implementation up to 3 dimensions
   s.methods.norm = macro(function(self)
-      local acc = `0
+      local acc = `[T](0)
       for k,i in pairs(s.metamethods.basis) do
         local count = countbits(k)
           if ((count % 2)) ~= 0 then
@@ -479,8 +480,8 @@ function GA(T, N)
   terra ga.scalar(a : T) : multivector(T, {0}) return a end
 
   local kvectors = {}
-  for i = 0,N-1 do
-    ga["e"..i] = multivector(T, {2^i})
+  for i = 0,(2^N)-1 do
+    ga[prettycomponent(i)] = constant(`[multivector(T, {i})]{array([T](1))})
     table.insert(kvectors, {})
   end
 
@@ -506,24 +507,28 @@ function GA(T, N)
         end
       end
 
-      return `[multivector(T, components)]{array([values])}
+      if #values > 0 then
+        return `[multivector(T, components)]{array([values])}
+      end
+      return `[multivector(T, components)]{}
     end)
+    ga["vector"..i.."_t"] = multivector(T, kvectors[i])
   end
 
   ga.exp = macro(function(v)
     return quote
       var i = v:normalize()
-      var th = v:length()
+      var th = v:magnitude()
     in
       (Math.cos(th) + i*Math.sin(th))
     end
   end)
   
   -- pretty name aliases
-  if ga.vector1 ~= nil then ga.vector = ga.vector1 end
-  if ga.vector2 ~= nil then ga.bivector = ga.vector2 end
-  if ga.vector3 ~= nil then ga.trivector = ga.vector3 end
-  if ga.vector4 ~= nil then ga.quadvector = ga.vector4 end
+  if ga.vector1 ~= nil then ga.vector = ga.vector1; ga.vector_t = ga.vector1_t end
+  if ga.vector2 ~= nil then ga.bivector = ga.vector2; ga.bivector_t = ga.vector2_t end
+  if ga.vector3 ~= nil then ga.trivector = ga.vector3; ga.trivector_t = ga.vector3_t end
+  if ga.vector4 ~= nil then ga.quadvector = ga.vector4; ga.quadvector_t = ga.vector4_t end
 
   ga.bitsetsign = bitsetsign
   ga.multivector = macro(function(c) return multivector(T, c) end, function(c) return multivector(T, c) end)

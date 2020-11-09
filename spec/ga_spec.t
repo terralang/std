@@ -5,6 +5,7 @@ local GA3 = GA(float, 3)
 local GA4 = GA(float, 4)
 local GA2i = GA(int, 2)
 local Math = require 'std.math'
+local C = terralib.includecstring [[#include <stdio.h>]]
 
 describe("Multivector", function()
   it('should calculate the sign correctly', terra()
@@ -218,21 +219,21 @@ describe("Multivector", function()
     do
       var i = GA3.bivector(1,0,1):normalize()
       var v = (GA3.exp(-i*(PI/4))*GA3.vector(1,1,1))*GA3.exp(i*(PI/4))
-      assert.truthy((v - GA3.vector(0.29289, 0, 1.70711)):length() <= 0.0001f)
+      assert.truthy((v - GA3.vector(0.29289, 0, 1.70711)):magnitude() <= 0.0001f)
     end
 
     do
       var i = GA3.bivector(1,0,0)
       var v = (GA3.exp(-i*(PI/4))*GA3.vector(1,0,1))*(Math.cos(PI/4) + i*Math.sin(PI/4))
       --var v = ((Math.cos(PI/4) + (-i)*Math.sin(PI/4))*GA3.vector(1,0,1))*(Math.cos(PI/4) + i*Math.sin(PI/4))
-      assert.truthy((v - GA3.vector(0, 1, 1)):length() <= 0.00001f)
+      assert.truthy((v - GA3.vector(0, 1, 1)):magnitude() <= 0.00001f)
     end
   end)
 
   it('should calculate the dot product correctly', terra()
     var f = GA3.bivector(1,2,3)
     -- This must be EXACTLY equal, because it SHOULD be the exact same sequence of float calculations
-    assert.equal(f:length(), Math.sqrt(Math.fabs_32(f:dot(f))))
+    assert.equal(f:magnitude(), Math.sqrt(Math.fabs_32(f:dot(f))))
   end)
 
   it('should calculate the wedge product correctly', terra()
@@ -269,5 +270,29 @@ describe("Multivector", function()
   end)
 
   it('should calculate volume correctly', terra()
+    var verts : GA3.vector_t[8]
+    verts[0] = GA3.vector(1,1,0)
+    verts[1] = GA3.vector(2,1,0)
+    verts[2] = GA3.vector(2,2,0)
+    verts[3] = GA3.vector(1,2,0)
+    verts[4] = GA3.vector(1,2,1)
+    verts[5] = GA3.vector(2,2,1)
+    verts[6] = GA3.vector(2,1,1)
+    verts[7] = GA3.vector(1,1,1)
+    var origin = GA3.vector(0,0,0)
+    var area = escape 
+      local function triarea(a,b,c) 
+        return `((([origin] - verts[ [a] ])^(verts[ [a] ] - verts[ [b] ])^(verts[ [b] ] - verts[ [c] ]))/3)
+      end
+      
+      emit(`[triarea(0,1,2)] +
+        [triarea(0,3,4)] +
+        [triarea(0,7,6)] +
+        [triarea(3,2,5)] +
+        [triarea(6,5,2)] +
+        [triarea(7,4,5)])
+    end
+
+    assert.equal(area, GA3.trivector(1))
   end)
 end)
