@@ -270,15 +270,7 @@ describe("Multivector", function()
   end)
 
   it('should calculate volume correctly', terra()
-    var verts : GA3.vector_t[8]
-    verts[0] = GA3.vector(1,1,0)
-    verts[1] = GA3.vector(2,1,0)
-    verts[2] = GA3.vector(2,2,0)
-    verts[3] = GA3.vector(1,2,0)
-    verts[4] = GA3.vector(1,2,1)
-    verts[5] = GA3.vector(2,2,1)
-    verts[6] = GA3.vector(2,1,1)
-    verts[7] = GA3.vector(1,1,1)
+    var verts = arrayof(GA3.vector_t, GA3.vector(1,1,0), GA3.vector(2,1,0), GA3.vector(2,2,0), GA3.vector(1,2,0), GA3.vector(1,2,1), GA3.vector(2,2,1), GA3.vector(2,1,1), GA3.vector(1,1,1))
     var origin = GA3.vector(0,0,0)
     var area = escape 
       local function triarea(a,b,c) 
