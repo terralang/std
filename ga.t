@@ -525,6 +525,7 @@ function GA(T, N)
   end)
   
   -- pretty name aliases
+  ga.scalar_t = T
   if ga.vector1 ~= nil then ga.vector = ga.vector1; ga.vector_t = ga.vector1_t end
   if ga.vector2 ~= nil then ga.bivector = ga.vector2; ga.bivector_t = ga.vector2_t end
   if ga.vector3 ~= nil then ga.trivector = ga.vector3; ga.trivector_t = ga.vector3_t end
