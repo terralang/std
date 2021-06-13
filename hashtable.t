@@ -1,16 +1,29 @@
 local A = require 'std.alloc'
 local O = require 'std.object' 
-local M = {}
 
--- Default hash function. This is an implementation of djb2. Treats a block of data as an array of bytes.
-local terra default_hash(data: &uint8, size: uint): uint
-	var hash: uint = 5381
+local CStr = terralib.includec("string.h")
 
-	for i = 0, size do
-		hash = ((hash << 5) + hash * 33) + data[i]
+--[[ Factory function for default hash functions of various types. Generally, the hasing functions outputted are implementation of djb2. ]]--
+function CreateDefaultHashFunction(KeyType)
+	local function ComputeSize(keyValue)
+		if KeyType == rawstring then
+			return `CStr.strlen(keyValue)
+		else
+			return `sizeof([KeyType])
+		end
 	end
 
-	return hash
+	local terra hash_function(data: KeyType): uint
+		var hash: uint = 5381
+
+		for i = 0, [ComputeSize(data)] do
+			hash = ((hash << 5) + hash * 33) + data[i]
+		end
+
+		return hash
+	end
+
+	return hash_function
 end
 
 --[[ 
@@ -18,13 +31,17 @@ end
 
 	This hashtable is based on the dense_hash_set implementation by Google.
 --]]
-function M.HashTable(Key, HashFn, GroupLength, Alloc)
-	HashFn = HashFn or default_hash
+function HashTable(Key, HashFn, GroupLength, Alloc)
+	HashFn = HashFn or CreateDefaultHashFunction(Key)
 	GroupLength = GroupLength or 48
 	Alloc = Alloc or A.default_allocator
 
 	local struct Entry {
-		value: &Key
+		-- A pointer to the metadata byte.
+		metadata: &int8
+
+		-- A pointer to the bucket.
+		bucket: &Key
 	}
 
 	local struct Hashtable(O.Object) {
@@ -38,8 +55,8 @@ function M.HashTable(Key, HashFn, GroupLength, Alloc)
 
 	-- Allocates memory large enough to fit the provided number of groups and associated metadata. Returns a pointer to this block of memory.
 	local terra malloc_by_groups(groups: uint): &opaque
-		buckets = groups * [ GroupLength ]
-		return [ Alloc ].alloc(groups + (sizeof([Key]) * buckets))
+		var buckets = groups * [ GroupLength ]
+		return [ Alloc ]:alloc_raw(buckets + (sizeof([Key]) * buckets))
 	end
 
 	terra Hashtable:init()
@@ -47,12 +64,16 @@ function M.HashTable(Key, HashFn, GroupLength, Alloc)
 		
 		self:_init {
 			capacity = [ GroupLength ],
-			metadata = big_ol_chunk_of_memory,
-			buckets = big_ol_chunk_of_memory[ [GroupLength] ]
+			metadata = [&int8] (big_ol_chunk_of_memory),
+			buckets =  [&Key] ( [&int8] (big_ol_chunk_of_memory) + [ GroupLength ])
 		}
 	end
 
-	return HashTable
+	terra Hashtable:insert(key: Key)
+		var hash = [ HashFn ](key)
+	end
+
+	return Hashtable
 end
 
-return M
+return HashTable
