@@ -2,12 +2,24 @@ local A = require 'std.alloc'
 local O = require 'std.object' 
 local M = {}
 
+-- Default hash function. This is an implementation of djb2. Treats a block of data as an array of bytes.
+local terra default_hash(data: &uint8, size: uint): uint
+	var hash: uint = 5381
+
+	for i = 0, size do
+		hash = ((hash << 5) + hash * 33) + data[i]
+	end
+
+	return hash
+end
+
 --[[ 
 	Creates a new HashTable type.
 
 	This hashtable is based on the dense_hash_set implementation by Google.
 --]]
-function M.HashTable(Key, GroupLength, Alloc)
+function M.HashTable(Key, HashFn, GroupLength, Alloc)
+	HashFn = HashFn or default_hash
 	GroupLength = GroupLength or 48
 	Alloc = Alloc or A.default_allocator
 
