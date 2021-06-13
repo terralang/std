@@ -36,6 +36,9 @@ function HashTable(Key, HashFn, GroupLength, Alloc)
 	GroupLength = GroupLength or 48
 	Alloc = Alloc or A.default_allocator
 
+	local MetadataHashBitmap = constant(127) -- 0b01111111
+	local MetadataEmpty = constant(128) -- 0b10000000
+
 	local struct Entry {
 		-- A pointer to the metadata byte.
 		metadata: &int8
@@ -70,7 +73,7 @@ function HashTable(Key, HashFn, GroupLength, Alloc)
 
 		-- Initialize the metadata array
 		for i = 0, self.capacity do
-			self.metadata[i] = 128 -- 0b10000000
+			self.metadata[i] = MetadataEmpty
 		end
 	end
 
@@ -78,8 +81,18 @@ function HashTable(Key, HashFn, GroupLength, Alloc)
 		var hash = [ HashFn ](key)
 		var bucket_index = hash % self.capacity
 
-		self.metadata[bucket_index] = hash & 127 -- 0b01111111
+		self.metadata[bucket_index] = hash and MetadataHashBitmap
 		self.buckets[bucket_index] = key
+	end
+
+	terra Hashtable:entry(key: Key): Entry
+		var hash = [ HashFn ](key)
+		var bucket_index = hash % self.capacity
+		
+		return Entry {
+			metadata = self.metadata + bucket_index,
+			bucket = self.buckets + bucket_index
+		}
 	end
 
 	return Hashtable
