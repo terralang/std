@@ -67,10 +67,19 @@ function HashTable(Key, HashFn, GroupLength, Alloc)
 			metadata = [&int8] (big_ol_chunk_of_memory),
 			buckets =  [&Key] ( [&int8] (big_ol_chunk_of_memory) + [ GroupLength ])
 		}
+
+		-- Initialize the metadata array
+		for i = 0, self.capacity do
+			self.metadata[i] = 128 -- 0b10000000
+		end
 	end
 
 	terra Hashtable:insert(key: Key)
 		var hash = [ HashFn ](key)
+		var bucket_index = hash % self.capacity
+
+		self.metadata[bucket_index] = hash & 127 -- 0b01111111
+		self.buckets[bucket_index] = key
 	end
 
 	return Hashtable
