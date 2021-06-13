@@ -6,8 +6,8 @@ pkgs.mkShell {
       fundament-terra = import (pkgs.fetchFromGitHub {
         owner = "Fundament-Software";
         repo = "terra";
-        rev = "89b5c7cb71fa4aaaeb2b4ff5d3fe0389fec15268";
-        sha256 = "05drwz75ah774g6b70d01v2glg8aj6p0ahz4cb88inr6jijzd57g";
+        rev = "fb410b202e26c58003dcad4138d42f1189d5954c";
+        sha256 = "1x0f2k5wm1vpazg7v57r7bp5hyfsp5075az4j00qn06y5wyq7g8a";
       }) { inherit pkgs; };
     in
       [ fundament-terra ];
