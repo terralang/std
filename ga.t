@@ -83,6 +83,10 @@ local function setentry(entryname, expr, value)
 end
 
 local function typename(self)
+  if self.metamethods.N == 0 then
+    return "Zero"
+  end
+  
   if self.metamethods.grade == 0 then
     return ("Scalar<%s>"):format(tostring(self.metamethods.type))
   end
@@ -244,6 +248,15 @@ multivector = function(T, Components)
       else
         emit(quote return Math.sqrt_64([double](acc)) end)
       end
+    end
+  end
+  terra s:mag2() : T
+    escape
+      local acc = `[T](0)
+      for i = 0,N-1 do
+        acc = `[acc] + self.v[i]*self.v[i]
+      end
+      emit(quote return acc end)
     end
   end
 
@@ -434,7 +447,7 @@ multivector = function(T, Components)
     for i,v in ipairs(to.metamethods.components) do
       local index = from.metamethods.basis[v]
       if not index then
-        table.insert(args, `0)
+        table.insert(args, `[T](0))
       else
         table.insert(args, `[exp].v[ [index] ])
       end
