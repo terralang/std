@@ -20,12 +20,18 @@ describe("Hash table", function()
 		hash_table:insert("X3")
 		hash_table:insert("OwO")
 
-		var a = hash_table:entry("rawr")
-		var b = hash_table:entry("X3")
-		var c = hash_table:entry("OwO")
+		for i = 0, hash_table.capacity do
+			C.printf("[%d] %x\t", i, hash_table.metadata[i])
+			if hash_table.metadata[i] == 128 then
+				C.printf("Empty\n")
+			else
+				C.printf("%s\n", hash_table.buckets[i])
+			end
+		end
 
-		C.printf("[a] %x - %s\n", @a.metadata, @a.bucket)
-		C.printf("[b] %x - %s\n", @b.metadata, @b.bucket)
-		C.printf("[c] %x - %s\n", @c.metadata, @c.bucket)
+		assert hash_table:has("rawr")
+		assert hash_table:has("X3")
+		assert hash_table:has("OwO")
+
 	end)
 end)
