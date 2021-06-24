@@ -26,12 +26,19 @@ function CreateDefaultHashFunction(KeyType)
 	return hash_function
 end
 
+function CreateDefaultEqualityFunction(KeyType)
+	local terra equal_function(k1: KeyType, k2: KeyType): bool
+		return k1 == k2
+	end
+end
+
 --[[ 
 	Creates a new HashTable type.
 
 	This hashtable is based on the dense_hash_set implementation by Google.
 --]]
-function HashTable(KeyType, HashFn, Alloc)
+function HashTable(KeyType, EqFn, HashFn, Alloc)
+	EqFn = EqFn or CreateDefaultEqualityFunction(KeyType)
 	HashFn = HashFn or CreateDefaultHashFunction(KeyType)
 	Alloc = Alloc or A.default_allocator
 
@@ -52,7 +59,7 @@ function HashTable(KeyType, HashFn, Alloc)
 	}
 
 	local struct HashResult {
-		bucket_index: uint
+		initial_bucket_index: uint
 		h1: uint
 		h2: uint8
 	}
@@ -72,11 +79,11 @@ function HashTable(KeyType, HashFn, Alloc)
 		end
 	end
 
-	local terra compute_hashes(capacity: uint, key: KeyType): HashResult
+	local terra compute_hashes(key: KeyType, capacity: uint): HashResult
 		var hash = [ HashFn ](key)
 
 		return HashResult {
-			bucket_index = (hash >> 7) % capacity,
+			initial_bucket_index = (hash >> 7) % capacity,
 			h1 = hash >> 7,
 			h2 = hash and MetadataHashBitmap
 		}
@@ -89,12 +96,12 @@ function HashTable(KeyType, HashFn, Alloc)
 		This index may point to a bucket which contains the key, or an empty bucket where the key should be inserted if the key does not exist.
 		The return value is negative if an error occured.
 	]]--
-	local terra probe_clever(hash_result: HashResult, metadata_array: &uint8, capacity: uint): int
-		for j = hash_result.bucket_index, capacity + hash_result.bucket_index do
+	local terra probe_clever(key: KeyType, initial_bucket_index: uint, h2: uint8, metadata_array: &uint8, capacity: uint): int
+		for j = initial_bucket_index, capacity + initial_bucket_index do
 			i = j and (capacity - 1)
 			var m = metadata_array[i]
 
-			if m == MetadataEmpty or m == hash_result.h2 then
+			if m == MetadataEmpty or (m == h2 and [ EqFn ](key, m)) then
 				return i
 			end
 		end
@@ -119,7 +126,7 @@ function HashTable(KeyType, HashFn, Alloc)
 			if hashtable.metadata[i] != MetadataEmpty then
 				var key = hashtable.buckets[i]
 				var hash_result = compute_hashes(new_capacity, key)
-				var probe_index = probe_clever(hash_result, new_metadata, new_capacity)
+				var probe_index = probe_clever(key, hash_result.initial_bucket_index, hash_result.h2, new_metadata, new_capacity)
 
 				new_metadata[probe_index] = hash_result.h2
 				new_buckets[probe_index] = key
@@ -153,11 +160,22 @@ function HashTable(KeyType, HashFn, Alloc)
 		end
 
 		var hash_result = compute_hashes(self.capacity, key)
-		var probe_index = probe_clever(hash_result, self.metadata, self.capacity)
+		var probe_index = probe_clever(key, self.metadata.initial_bucket_index self.metadata.h2, self.metadata, self.capacity)
 
 		self.size = self.size + 1
 		self.metadata[probe_index] = hash_result.h2
 		self.buckets[probe_index] = key
+	end
+
+	terra Hashtable:has(key: KeyType): bool
+		var hash_result = compute_hashes(self.capacity, key)
+		var probe_index = probe_clever(hash_result, self.metadata, self.capacity)
+
+		if probe_index == -1 or self.metadata[probe_index] == MetadataEmpty then
+			return false
+		end
+
+		return true
 	end
 
 	return Hashtable
