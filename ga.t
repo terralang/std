@@ -271,6 +271,30 @@ multivector = function(T, Components)
     return normalized
   end
 
+  local function component_op(op, U)
+    return terra (self : &s, y : U) : s
+      var x : s = @self
+      for i = 0,N-1 do
+        escape
+          if U == s then
+            emit(quote x.v[i] = operator(op, x.v[i], y.v[i]) end)
+          else
+            emit(quote x.v[i] = operator(op, x.v[i], y) end)
+          end
+        end
+      end
+      return x
+    end
+  end
+
+  local ops = { "sub","add","mul","div" }
+  for i, op in ipairs(ops) do
+    s.methods["component_" .. op] = terralib.overloadedfunction("component_" .. op, {
+      component_op("__" .. op, s),
+      component_op("__" .. op, T)
+      }
+    )
+  end
 
   -- The norm of an arbitrary multivector is itself times it's own conjugate, but we only have an efficient implementation up to 3 dimensions
   s.methods.norm = macro(function(self)
@@ -491,6 +515,7 @@ end
 function GA(T, N)
   local ga = {}
   terra ga.scalar(a : T) : multivector(T, {0}) return a end
+  ga.zero = constant(`[multivector(T, {})]{})
 
   local kvectors = {}
   for i = 0,(2^N)-1 do
