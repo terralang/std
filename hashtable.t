@@ -4,7 +4,7 @@ local O = require 'std.object'
 local CStr = terralib.includec("string.h")
 
 --[[ Factory function for default hash functions of various types. Generally, the hashing functions outputted are implementation of djb2. ]]--
-function CreateDefaultHashFunction(KeyType)
+local function CreateDefaultHashFunction(KeyType)
 	local function ComputeSize(keyValue)
 		if KeyType == rawstring then
 			return `CStr.strlen(keyValue)
@@ -26,7 +26,7 @@ function CreateDefaultHashFunction(KeyType)
 	return hash_function
 end
 
-function CreateDefaultEqualityFunction(KeyType)
+local function CreateDefaultEqualityFunction(KeyType)
 	local terra equal_function(k1: KeyType, k2: KeyType): bool
 		return k1 == k2
 	end
@@ -38,7 +38,7 @@ end
 
 	This hashtable is based on the dense_hash_set implementation by Google.
 --]]
-function HashTable(KeyType, EqFn, HashFn, Alloc)
+local function HashTable(KeyType, EqFn, HashFn, Alloc)
 	EqFn = EqFn or CreateDefaultEqualityFunction(KeyType)
 	HashFn = HashFn or CreateDefaultHashFunction(KeyType)
 	Alloc = Alloc or A.default_allocator
@@ -69,8 +69,8 @@ function HashTable(KeyType, EqFn, HashFn, Alloc)
 	-- Returns a pointer to the metadata array and a pointer to the bucket array.
 	local terra malloc_by_groups(groups: uint): tuple(&uint8, &KeyType)
 		var buckets = groups * GroupLength
-		var big_ol_chunk_of_memory = [ Alloc ]:alloc_raw(buckets + (sizeof([KeyType]) * buckets))
-		return { [&uint8] (big_ol_chunk_of_memory), [&KeyType] ([&uint8] (big_ol_chunk_of_memory) + GroupLength) }
+		var chunk_of_memory = [ Alloc ]:alloc_raw(buckets + (sizeof([KeyType]) * buckets))
+		return { [&uint8] (chunk_of_memory), [&KeyType] ([&uint8] (chunk_of_memory) + GroupLength) }
 	end
 
 	-- Initalizes the metadata array with MetadataEmpty
