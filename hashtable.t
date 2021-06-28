@@ -30,6 +30,7 @@ function CreateDefaultEqualityFunction(KeyType)
 	local terra equal_function(k1: KeyType, k2: KeyType): bool
 		return k1 == k2
 	end
+	return equal_function
 end
 
 --[[ 
@@ -69,12 +70,12 @@ function HashTable(KeyType, EqFn, HashFn, Alloc)
 	local terra malloc_by_groups(groups: uint): tuple(&uint8, &KeyType)
 		var buckets = groups * GroupLength
 		var big_ol_chunk_of_memory = [ Alloc ]:alloc_raw(buckets + (sizeof([KeyType]) * buckets))
-		return { [&uint8] (big_ol_chunk_of_memory), [&KeyType] ([&uint8] big_ol_chunk_of_memory + GroupLength) }
+		return { [&uint8] (big_ol_chunk_of_memory), [&KeyType] ([&uint8] (big_ol_chunk_of_memory) + GroupLength) }
 	end
 
 	-- Initalizes the metadata array with MetadataEmpty
 	local terra initalize_metadata(metadata_array: &uint8, length: uint)
-		for i = 0, self.length do
+		for i = 0, length do
 			metadata_array[i] = MetadataEmpty
 		end
 	end
@@ -96,12 +97,12 @@ function HashTable(KeyType, EqFn, HashFn, Alloc)
 		This index may point to a bucket which contains the key, or an empty bucket where the key should be inserted if the key does not exist.
 		The return value is negative if an error occured.
 	]]--
-	local terra probe_clever(key: KeyType, initial_bucket_index: uint, h2: uint8, metadata_array: &uint8, capacity: uint): int
-		for j = initial_bucket_index, capacity + initial_bucket_index do
-			i = j and (capacity - 1)
+	local terra probe_clever(key: KeyType, hash_result: HashResult, metadata_array: &uint8, buckets: &KeyType, capacity: uint): int
+		for j = hash_result.initial_bucket_index, capacity + hash_result.initial_bucket_index do
+			var i = j and (capacity - 1)
 			var m = metadata_array[i]
 
-			if m == MetadataEmpty or (m == h2 and [ EqFn ](key, m)) then
+			if m == MetadataEmpty or (m == hash_result.h2 and [ EqFn ](key, buckets[i])) then
 				return i
 			end
 		end
@@ -110,7 +111,7 @@ function HashTable(KeyType, EqFn, HashFn, Alloc)
 	end
 
 	-- Resizes the hashtable by doubling the number of groups.
-	local terra resize_hashtable(hashtable: Hashtable)
+	local terra resize_hashtable(hashtable: &Hashtable)
 		var old_group_count = hashtable.capacity / GroupLength
 		var new_group_count = old_group_count * 2
 		var new_capacity = new_group_count * GroupLength
@@ -119,14 +120,14 @@ function HashTable(KeyType, EqFn, HashFn, Alloc)
 		-- That's going to be really hard within the same memory segment
 		var new_metadata, new_buckets = malloc_by_groups(new_group_count)
 
-		initalize_metadata(new_memory_chunk, new_capacity)
+		initalize_metadata(new_metadata, new_capacity)
 
 		-- Iterate through the old hashtable and rehash
 		for i = 0, hashtable.capacity do
-			if hashtable.metadata[i] != MetadataEmpty then
+			if hashtable.metadata[i] ~= MetadataEmpty then
 				var key = hashtable.buckets[i]
-				var hash_result = compute_hashes(new_capacity, key)
-				var probe_index = probe_clever(key, hash_result.initial_bucket_index, hash_result.h2, new_metadata, new_capacity)
+				var hash_result = compute_hashes(key, new_capacity)
+				var probe_index = probe_clever(key, hash_result, new_metadata, new_buckets, new_capacity)
 
 				new_metadata[probe_index] = hash_result.h2
 				new_buckets[probe_index] = key
@@ -159,8 +160,8 @@ function HashTable(KeyType, EqFn, HashFn, Alloc)
 			resize_hashtable(self)
 		end
 
-		var hash_result = compute_hashes(self.capacity, key)
-		var probe_index = probe_clever(key, self.metadata.initial_bucket_index self.metadata.h2, self.metadata, self.capacity)
+		var hash_result = compute_hashes(key, self.capacity)
+		var probe_index = probe_clever(key, hash_result, self.metadata, self.buckets, self.capacity)
 
 		self.size = self.size + 1
 		self.metadata[probe_index] = hash_result.h2
@@ -168,8 +169,8 @@ function HashTable(KeyType, EqFn, HashFn, Alloc)
 	end
 
 	terra Hashtable:has(key: KeyType): bool
-		var hash_result = compute_hashes(self.capacity, key)
-		var probe_index = probe_clever(hash_result, self.metadata, self.capacity)
+		var hash_result = compute_hashes(key, self.capacity)
+		var probe_index = probe_clever(key, hash_result, self.metadata, self.buckets, self.capacity)
 
 		if probe_index == -1 or self.metadata[probe_index] == MetadataEmpty then
 			return false
