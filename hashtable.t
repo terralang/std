@@ -135,7 +135,7 @@ local function HashTable(KeyType, EqFn, HashFn, Alloc)
 		end
 
 		-- Free old memory
-		[ Alloc ]:free_raw(new_metadata)
+		[ Alloc ]:free_raw(hashtable.metadata)
 
 		hashtable.capacity = new_capacity
 		hashtable.metadata = new_metadata
