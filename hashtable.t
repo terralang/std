@@ -19,20 +19,22 @@ end
 
 function M.CreateDefaultHashFunction(KeyType)
 	if KeyType == rawstring then
-		return local terra default_string_hash(str: KeyType)
+		local terra default_string_hash(str: KeyType)
 			return M.hash_djb2(str, CStr.strlen(str))
 		end
+		return default_string_hash
 	-- TODO: Add more cases here
 	else
-		return local terra naive_hash(obj: KeyType)
+		local terra naive_hash(obj: KeyType)
 			return M.hash_djb2(obj, sizeof(obj))
 		end
+		return naive_hash
 	end
 end
 
 function M.CreateDefaultEqualityFunction(KeyType)
 	-- TODO: Need more cases here too
-	local terra naive_equal_function(1: KeyType, k2: KeyType): bool
+	local terra naive_equal_function(k1: KeyType, k2: KeyType): bool
 		return k1 == k2
 	end
 	return equal_function
@@ -70,12 +72,6 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 		CStr.memset(metadata_array, SM.MetadataEmpty, capacity)
 
 		return {true, opaque_ptr, metadata_array, buckets_array}
-	end
-		if KeyType == rawstring then
-			return terra default_string_hash(str: KeyType)
-				return M._Plumbing.hash_djb2(str, CStr.strlen(str))
-			end
-		end
 	end
 
 	struct SM._Plumbing.HashResult {
@@ -152,6 +148,7 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 
 		if alloc_success == false then
 			return false
+		end
 
 		SM._Plumbing.rehash_table(hashtable.metadata, hashtable.buckets, hashtable.capacity, new_metadata, new_buckets, new_capacity)
 
@@ -222,19 +219,14 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 		for i = 0, self.capacity do
 			C.printf("[%u]\t%p\t0x%X\t%p", i, self.metadata + i, self.metadata[i], self.buckets + i)
 
-
-		if self.metadata[i] == 128 then
-			C.printf("Empty\n", self.buckets + i)
-		elseif self.buckets + i == nil then
-			C.printf("NULL PTR\n")
-		else
-			[ 
-				-- TODO: bad, refactor later
-				if KeyType == rawstring then
-					`C.printf("%s\n", self.buckets[i]
-			  	else
-					`C.printf("0x%X\n", self.buckets[i])
-			]
+			if self.metadata[i] == 128 then
+				C.printf("Empty\n", self.buckets + i)
+			elseif self.buckets + i == nil then
+				C.printf("NULLPTR\n")
+			else
+				-- TODO: this won't work all the time, refactor to handle all types later
+				C.printf("%s\n", self.buckets[i])
+			end
 		end
 	end
 
