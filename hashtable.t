@@ -51,7 +51,6 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 	SM.MetadataEmpty = constant(uint8, 128) -- 0b10000000
 	SM.GroupLength = constant(uint, 16)
 
-
 	-- Produces a collection of methods used for the HashTable implementation.
 	-- This is considered to be an implementation detail and subject to API changes. The only reason this is exposed is for automated testing purposes.
 	SM._Plumbing = {}
@@ -227,7 +226,7 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 	terra SM.HashTable:debug_full_repr()
 		Cstdio.printf("HashTable Size: %u, Capacity: %u, OpaquePtr: %p\n", self.size, self.capacity, self.opaque_ptr)
 		for i = 0, self.capacity do
-			Cstdio.printf("[%u]\tMetadata: %p = 0x%02X\tBucket: %p - ", i, self.metadata + i, self.metadata[i], self.buckets + i)
+			Cstdio.printf("[%u]\tMetadata: %p = 0x%02X\tBucket: %p = ", i, self.metadata + i, self.metadata[i], self.buckets + i)
 
 			if self.metadata[i] == 128 then
 				Cstdio.printf("Empty\n", self.buckets + i)
