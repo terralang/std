@@ -9,9 +9,14 @@ end)
 
 describe("Hash table", function()
 
-	it("should have a default constructor", terra()
+	it("init should initalize metadata to MetadataEmpty", terra()
 		var hash_table: HT.HashTable(rawstring)
 		O.new(hash_table)
+
+		-- Assert that metadata is initalized
+		for i = 0, hash_table.capacity do
+			assert.equal(hash_table.metadata[i], 128)
+		end
 	end)
 
 	-- We should add a copy constructor and a capacity constructor.
@@ -19,16 +24,15 @@ describe("Hash table", function()
 	it("should insert entries", terra()
 		var hash_table: HT.HashTable(rawstring)
 		O.new(hash_table)
-
+		
 		var str1 = "According to all known laws of aviation"
 		var str2 = "there is no way that a be should be able to fly"
 		var str3 = "Its wings are too small to get its fat little body off the ground"
-
 		hash_table:insert(str1)
 		hash_table:insert(str2)
 		hash_table:insert(str3)
 		
-		hash_table:debug_repr()
+		hash_table:debug_full_repr()	
 
 		assert.equal(hash_table.size, 3)
 		assert.is_true(hash_table:has(str1))

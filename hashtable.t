@@ -172,10 +172,11 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 	}
 
 	terra SM.HashTable:init()
-		var alloc_success, opaque_ptr, metadata, buckets = SM._Plumbing.table_calloc(1)
+		var initial_capacity = SM.GroupLength
+		var alloc_success, opaque_ptr, metadata, buckets = SM._Plumbing.table_calloc(initial_capacity)
 		
 		self:_init {
-			capacity = SM.GroupLength,
+			capacity = initial_capacity,
 			size = 0,
 			opaque_ptr = opaque_ptr,
 			metadata = metadata,
@@ -214,10 +215,19 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 		return true
 	end
 
-	-- Prints a debug view of the table to stdout.
-	terra SM.HashTable:debug_repr()
+	-- Prints a debug view of the metadata array to stdout
+	terra SM.HashTable:debug_metadata_repr()
+		Cstdio.printf("HashTable Size: %u, Capacity: %u, OpaquePtr: %p\n", self.size, self.capacity, self.opaque_ptr)
 		for i = 0, self.capacity do
-			Cstdio.printf("[%u]\t%p\t0x%X\t%p\t", i, self.metadata + i, self.metadata[i], self.buckets + i)
+			Cstdio.printf("[%u]\t%p - 0x%02X\n", i, self.metadata + i, self.metadata[i])
+		end
+	end
+
+	-- Prints a debug view of the table to stdout.
+	terra SM.HashTable:debug_full_repr()
+		Cstdio.printf("HashTable Size: %u, Capacity: %u, OpaquePtr: %p\n", self.size, self.capacity, self.opaque_ptr)
+		for i = 0, self.capacity do
+			Cstdio.printf("[%u]\tMetadata: %p = 0x%02X\tBucket: %p - ", i, self.metadata + i, self.metadata[i], self.buckets + i)
 
 			if self.metadata[i] == 128 then
 				Cstdio.printf("Empty\n", self.buckets + i)
