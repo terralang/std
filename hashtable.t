@@ -37,7 +37,7 @@ function M.CreateDefaultEqualityFunction(KeyType)
 	local terra naive_equal_function(k1: KeyType, k2: KeyType): bool
 		return k1 == k2
 	end
-	return equal_function
+	return naive_equal_function
 end
 
 function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
@@ -66,7 +66,7 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 			return {false, nil, nil, nil}
 		end
 
-		var metadata_array = [&int8](opaque_ptr)
+		var metadata_array = [&uint8](opaque_ptr)
 		var buckets_array = [&KeyType](metadata_array + capacity)
 
 		CStr.memset(metadata_array, SM.MetadataEmpty, capacity)
@@ -83,7 +83,7 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 	terra SM._Plumbing.compute_hashes(key: KeyType, capacity: uint): SM._Plumbing.HashResult
 		var hash = [ HashFn ](key)
 
-		return HashResult {
+		return SM._Plumbing.HashResult {
 			initial_bucket_index = (hash >> 7) % capacity,
 			h1 = hash >> 7,
 			h2 = hash and SM.MetadataHashBitmap
@@ -102,10 +102,10 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 							 capacity: uint): int
 		for virtual_index = hash_result.initial_bucket_index, capacity + hash_result.initial_bucket_index do
 			var index = virtual_index and (capacity -1)
-			var metadata = metadata_array[i]
+			var metadata = metadata_array[index]
 
-			if m == SM.MetadataEmpty or (m == hash_result.h2 and [EqFn](key, buckets[i])) then
-				return i
+			if metadata == SM.MetadataEmpty or (metadata == hash_result.h2 and [EqFn](key, buckets[index])) then
+				return index
 			end
 		end
 
@@ -134,7 +134,7 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 									new_capacity: uint)
 		for i = 0, old_capacity do
 			if old_metadata[i] ~= SM.MetadataEmpty then
-				var key = old_buckets[key]
+				var key = old_buckets[i]
 				SM._Plumbing.insert(key, new_metadata, new_buckets, new_capacity)
 			end
 		end
@@ -172,10 +172,10 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 	}
 
 	terra SM.HashTable:init()
-		var alloc_success, opaque_ptr, metadata, buckets = table_calloc(1)
+		var alloc_success, opaque_ptr, metadata, buckets = SM._Plumbing.table_calloc(1)
 		
 		self:_init {
-			capacity = GroupLength,
+			capacity = SM.GroupLength,
 			size = 0,
 			opaque_ptr = opaque_ptr,
 			metadata = metadata,
@@ -195,19 +195,19 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 	-- Inserts the key into the table. If the table is full, a resize is triggered.
 	terra SM.HashTable:insert(key: KeyType)
 		if self.size == self.capacity then
-			resize_hashtable(self)
+			SM._Plumbing.resize_hashtable(self)
 		end
 
-		SM._Plumbing.insert(key, self.metadata_array, self.buckets, self.capacity)
+		SM._Plumbing.insert(key, self.metadata, self.buckets, self.capacity)
 		self.size = self.size + 1
 	end
 
 	-- Tests if the table has a key of the specified value. Returns true if a value exists, false otherwise.
 	terra SM.HashTable:has(key: KeyType): bool
-		var hash_result = compute_hashes(key, self.capacity)
-		var probe_index = SM._Plumbing.probe_tabe(self, key, hash_result)
+		var hash_result = SM._Plumbing.compute_hashes(key, self.capacity)
+		var probe_index = SM._Plumbing.probe_table(self, key, hash_result)
 
-		if probe_index == -1 or self.metadata[probe_index] == MetadataEmpty then
+		if probe_index == -1 or self.metadata[probe_index] == SM.MetadataEmpty then
 			return false
 		end
 
@@ -217,15 +217,15 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 	-- Prints a debug view of the table to stdout.
 	terra SM.HashTable:debug_repr()
 		for i = 0, self.capacity do
-			C.printf("[%u]\t%p\t0x%X\t%p", i, self.metadata + i, self.metadata[i], self.buckets + i)
+			Cstdio.printf("[%u]\t%p\t0x%X\t%p\t", i, self.metadata + i, self.metadata[i], self.buckets + i)
 
 			if self.metadata[i] == 128 then
-				C.printf("Empty\n", self.buckets + i)
+				Cstdio.printf("Empty\n", self.buckets + i)
 			elseif self.buckets + i == nil then
-				C.printf("NULLPTR\n")
+				Cstdio.printf("NULLPTR\n")
 			else
 				-- TODO: this won't work all the time, refactor to handle all types later
-				C.printf("%s\n", self.buckets[i])
+				Cstdio.printf("%s\n", self.buckets[i])
 			end
 		end
 	end
