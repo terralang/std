@@ -103,6 +103,26 @@ describe("_Plumbing.probe", function()
 	end)
 end)
 
+describe("_Plumbing.resize_hashtable", function()
+	local StringHashTableModule = HT.CreateHashTableSubModule(rawstring)
+	local Plumbing = StringHashTableModule._Plumbing
+
+	it("should double the size of a hash_table", terra()
+		var test_table: StringHashTableModule.HashTable
+		O.new(test_table)
+
+		test_table:insert("the coldest summer for the rest of your life")
+
+		var old_capacity = test_table.capacity
+		var old_size = test_table.size
+
+		var result = Plumbing.resize_hashtable(&test_table)
+		assert.is_true(result)
+		assert.is_true(old_size == test_table.size)
+		assert.is_true(old_capacity * 2 == test_table.capacity)
+	end)
+end)
+
 describe("HashTable", function()
 
 	it("should initalize metadata to MetadataEmpty", terra()
@@ -132,7 +152,7 @@ describe("HashTable", function()
 		assert.is_true(hash_table:has(str1))
 		assert.is_true(hash_table:has(str2))
 		assert.is_true(hash_table:has(str3))
-
+		assert.is_false(hash_table:has("This string doesn't exist"))
 	end)
 
 

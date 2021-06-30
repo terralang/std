@@ -155,6 +155,9 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 		hashtable.opaque_ptr = opaque_ptr
 		hashtable.metadata = new_metadata
 		hashtable.buckets = new_buckets
+		hashtable.capacity = new_capacity
+
+		return true
 	end
 	
 	struct SM.HashTable(O.Object) {
