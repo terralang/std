@@ -2,6 +2,7 @@ local A = require 'std.alloc'
 local O = require 'std.object' 
 
 local CStr = terralib.includec("string.h")
+local Cstdio = terralib.includec("stdio.h")
 
 local M = {}
 
@@ -190,8 +191,11 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 		self.opaque_ptr = nil
 		self.metadata = nil
 		self.buckets = nil
+		self.size = 0
+		self.capacity = 0
 	end
 
+	-- Inserts the key into the table. If the table is full, a resize is triggered.
 	terra SM.HashTable:insert(key: KeyType)
 		if self.size == self.capacity then
 			resize_hashtable(self)
@@ -201,6 +205,7 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 		self.size = self.size + 1
 	end
 
+	-- Tests if the table has a key of the specified value. Returns true if a value exists, false otherwise.
 	terra SM.HashTable:has(key: KeyType): bool
 		var hash_result = compute_hashes(key, self.capacity)
 		var probe_index = SM._Plumbing.probe_tabe(self, key, hash_result)
@@ -210,6 +215,27 @@ function M.CreateHashTableSubModule(KeyType, HashFn, EqFn, Alloc)
 		end
 
 		return true
+	end
+
+	-- Prints a debug view of the table to stdout.
+	terra SM.HashTable:debug_repr()
+		for i = 0, self.capacity do
+			C.printf("[%u]\t%p\t0x%X\t%p", i, self.metadata + i, self.metadata[i], self.buckets + i)
+
+
+		if self.metadata[i] == 128 then
+			C.printf("Empty\n", self.buckets + i)
+		elseif self.buckets + i == nil then
+			C.printf("NULL PTR\n")
+		else
+			[ 
+				-- TODO: bad, refactor later
+				if KeyType == rawstring then
+					`C.printf("%s\n", self.buckets[i]
+			  	else
+					`C.printf("0x%X\n", self.buckets[i])
+			]
+		end
 	end
 
 	return SM
