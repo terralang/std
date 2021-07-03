@@ -96,14 +96,14 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 	local terra compute_hash(key: KeyType, capacity: uint): HashResult
 		var hash = [ HashFn ](key)
 
-		return SM.HashResult {
+		return HashResult {
 			initial_bucket_index = (hash >> 7) % capacity,
 			h1 = hash >> 7,
-			h2 = hash and SM.MetadataHashBitmap
+			h2 = hash and MetadataHashBitmap
 		}
 	end
 
-	struct DenseHashTable(O.Object) {
+	local struct DenseHashTable(O.Object) {
 		-- The total number of buckets in the table.
 		capacity: uint
 		-- The number of items stored in the table
@@ -118,7 +118,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 
 	-- Assigns all the fields of the hashtable to the specified values.
 	-- This is done because I'm not sure if I can reuse "self:_init" and we need saftey when mangling the internals in resize.
-	terra reassign_internals(htable: DenseHashTable, capacity: uint, size: uint, opaque_ptr: &opaque, metadata: &uint8, buckets: &BucketType)
+	local terra reassign_internals(htable: &DenseHashTable, capacity: uint, size: uint, opaque_ptr: &opaque, metadata: &uint8, buckets: &BucketType)
 		htable.capacity = capacity
 		htable.size = size
 		htable.opaque_ptr = opaque_ptr
@@ -127,10 +127,11 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 	end
 
 	terra DenseHashTable:init()
+		var initial_capacity = GroupLength
 		var alloc_success, opaque_ptr, metadata, buckets = table_calloc(initial_capacity)
 
 		self:_init {
-			capacity = GroupLength,
+			capacity = initial_capacity,
 			size = 0,
 			opaque_ptr = opaque_ptr,
 			metadata = metadata,
@@ -144,7 +145,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 			[Alloc]:free_raw(self.opaque_ptr)
 		end
 
-		CStr.memset(self, 0, sizeof(SM.HashTable))
+		CStr.memset(self, 0, sizeof(DenseHashTable))
 	end
 
 	terra DenseHashTable:lookup_handle(key: KeyType): BucketHandle 
@@ -152,15 +153,15 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		var virtual_limit = self.capacity + hash_result.initial_bucket_index
 
 		for virtual_index = hash_result.initial_bucket_index, virtual_limit do
-			var index = virtual_index and (capacity - 1)
+			var index = virtual_index and (self.capacity - 1)
 			var metadata = self.metadata[index]
 
-			if metadata == SM.MetadataEmpty or (metadata == hash_result.h2 and IsKeyEq(key, self.buckets[index])) then
+			if metadata == MetadataEmpty or (metadata == hash_result.h2 and IsKeyEq(key, self.buckets[index])) then
 				return BucketHandle {false, index, hash_result}
 			end
 		end
 
-		return BucketHandle {true, -1, nil}
+		return BucketHandle {true, -1, HashResult {0, 0, 0}}
 	end
 
 	local StoreHandleBody = macro(function(self, handle, key, value) 
@@ -234,8 +235,8 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		reassign_internals(self, new_capacity, 0, new_opaque_ptr, new_metadata, new_buckets)
 
 		for i = 0, old_capacity do
-			if metadata[i] ~= MetadataEmpty then
-				var old_bucket: BucketType = self.old_buckets[i]
+			if old_metadata[i] ~= MetadataEmpty then
+				var old_bucket: BucketType = old_buckets[i]
 				escape
 					if ValueType ~= nil then
 						emit(quote
@@ -244,7 +245,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 						end)
 					else
 						emit(quote
-							var handle = self.lookup_handle(old_bucket)
+							var handle = self:lookup_handle(old_bucket)
 							var result = self:store_handle(handle, old_bucket)
 						end)
 					end
@@ -274,7 +275,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 	end
 
 	-- Prints a debug view of the table to stdout.
-	terra SM.HashTable:debug_full_repr()
+	terra DenseHashTable:debug_full_repr()
 		Cstdio.printf("HashTable Size: %u, Capacity: %u, OpaquePtr: %p\n", self.size, self.capacity, self.opaque_ptr)
 		for i = 0, self.capacity do
 			Cstdio.printf("[%u]\tMetadata: %p = 0x%02X\tBucket: %p = ", i, self.metadata + i, self.metadata[i], self.buckets + i)
