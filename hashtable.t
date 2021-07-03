@@ -284,6 +284,8 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 			end
 		end
 	end
+
+	return DenseHashTable
 end
 
 -- Implementation of djb2. Treats all data as a stream of bytes.
