@@ -17,10 +17,10 @@ local M = {}
 M.CTHashTable = CT.All(
 	CT.Field("capacity", CT.Integral),
 	CT.Field("size", CT.Integral),
-	CT.Method("resize", nil, CT.Integral),
+	CT.Method("resize", CT.Empty, CT.Integral),
 	CT.MetaConstraint(
 		function(KeyType, ValueType, HandleType)
-			local lookup_constraint = CT.Method("lookup_handle", CT.Type(KeyType), CT.Type(HandleType)),
+			local lookup_constraint = CT.Method("lookup_handle", CT.Type(KeyType), CT.Type(HandleType))
 			
 			if ValueType ~= nil then
 				local store_constraint = CT.Method("store_handle", {CT.Type(HandleType), CT.Type(KeyType), CT.Type(ValueType)}, CT.Integral)
@@ -139,7 +139,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 			[Alloc]:free_raw(self.opaque_ptr)
 		end
 
-		CStr.memset(self, 0, sizeof(SM.HashTable)
+		CStr.memset(self, 0, sizeof(SM.HashTable))
 	end
 
 	terra DenseHashTable:lookup_handle(key: KeyType): BucketHandle 
@@ -171,7 +171,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 			[self].metadata[index] = hash_result.h2
 			[self].buckets[index] = escape
 				if ValueType ~= nil then
-					emit(`BucketType { key = [key], value = [value])
+					emit(`BucketType { key = [key], value = [value] })
 				else
 					emit(`key)
 				end
@@ -222,7 +222,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		var new_capacity = self.capacity * 2
 		var alloc_success, new_opaque_ptr, new_metadata, new_buckets = table_calloc(new_capacity)
 
-		if ~alloc_success then
+		if not alloc_success then
 			return -1
 		end
 
@@ -245,7 +245,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 					end
 				end
 
-				if result != 0 then
+				if result ~= 0 then
 					-- An error occured when rehashing. Reset the state of the hashtable and return an error.
 					reassign_internals(self, old_capacity, old_size, old_opaque_ptr, old_metadata, old_buckets)
 					[Alloc]:free(new_opaque_ptr)
