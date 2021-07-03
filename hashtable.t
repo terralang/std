@@ -21,16 +21,21 @@ M.CTHashTable = CT.All(
 	CT.MetaConstraint(
 		function(KeyType, ValueType, HandleType)
 			local lookup_constraint = CT.Method("lookup_handle", CT.Type(KeyType), CT.Type(HandleType))
+			-- This is just a tuple of (KeyType, ValueType)
+			local kvpair_constraint = CT.All(
+				CT.Field("_0", CT.Type(KeyType)),
+				CT.Field("_1", CT.Type(ValueType))
+			)
 			
-			if ValueType ~= nil then
-				local store_constraint = CT.Method("store_handle", {CT.Type(HandleType), CT.Type(KeyType), CT.Type(ValueType)}, CT.Integral)
-				local retreive_constraint = CT.Method("retrieve_handle", CT.Type(HandleType), {CT.Type(KeyType), CT.Type(ValueType)})
-			else
-				local store_constraint = CT.Method("store_handle", {CT.Type(HandleType), CT.Type(KeyType)}, CT.Integral)
-				local retreive_constraint = CT.Method("retrieve_handle", CT.Type(HandleType), CT.Type(KeyType))
-			end
+			local store_constraint = (ValueType ~= nil) and
+				CT.Method("store_handle", {CT.Type(HandleType), CT.Type(KeyType), CT.Type(ValueType)}, CT.Integral) or
+				CT.Method("store_handle", {CT.Type(HandleType), CT.Type(KeyType)}, CT.Integral)
 
-			return CT.All(lookup_constraint, insert_constraint, retrieve_handle)
+			local retrieve_constraint = (ValueType ~= nil) and 
+					CT.Method("retrieve_handle", CT.Type(HandleType), kvpair_constraint) or
+					CT.Method("retrieve_handle", CT.Type(HandleType), CT.Type(KeyType))
+
+			return CT.All(lookup_constraint, store_constraint, retrieve_constraint)
 		end,
 		CT.TerraType, CT.TerraType, CT.TerraType
 	)
@@ -39,24 +44,24 @@ M.CTHashTable = CT.All(
 M.Implementation = {}
 
 function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc)
-	MetadataHashBitmap = constant(uint8, 127) -- 0b01111111
-	MetadataEmpty = constant(uint8, 128) -- 0b10000000
-	GroupLength = constant(uint, 16)
+	local MetadataHashBitmap = constant(uint8, 127) -- 0b01111111
+	local MetadataEmpty = constant(uint8, 128) -- 0b10000000
+	local GroupLength = constant(uint, 16)
 
-	if ValueType == nil then
-		local BucketType = KeyType
-		local IsKeyEq = macro(function(key, bucket)
-			return `EqFn(key, bucket)
-		end)
-	else
-		local BucketType = struct {
+	local BucketType = (ValueType ~= nil) and
+		struct {
 			key: KeyType
 			value: ValueType
-		}
-		local IsKeyEq = macro(function(key, bucket)
+		} or
+		KeyType
+	
+	local IsKeyEq = (ValueType ~= nil) and
+		macro(function(key, bucket)
 			return `EqFn(key, bucket.value)
+		end) or
+		macro(function(key, bucket)
+			return `EqFn(key, bucket)
 		end)
-	end
 
 	-- Allocates and initalizes memory for the hashtable. The metadata array is initalized to `MetadataEmpty`. Buckets are not initialized to any value.
 	-- Returns a quadruple: The first value is success, the second value is an opaque pointer which should be passed to `free`, the third value is the metadata array, and the forth value is the bucket array.
