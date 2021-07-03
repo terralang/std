@@ -54,14 +54,30 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 			value: ValueType
 		} or
 		KeyType
-	
-	local IsKeyEq = (ValueType ~= nil) and
-		macro(function(key, bucket)
-			return `EqFn(key, bucket.value)
-		end) or
-		macro(function(key, bucket)
-			return `EqFn(key, bucket)
-		end)
+
+	local function MapBucketTypeValue(value, mapStruct, mapKey)
+		if ValueType ~= nil then
+			return mapStruct(value)
+		else
+			return mapKey(value)
+		end
+	end
+
+	local function GetBucketKey(bucket)
+		return MapBucketTypeValue(bucket, function(s) return `[s].key end, function(k) return k end)
+	end
+
+	local IsKeyEq = macro(function(key, bucket)
+		return `[EqFn]([key], [GetBucketKey(bucket)])
+	end)
+
+	local CreateBucket = macro(function(key, value)
+		if ValueType ~= nil then
+			return `BucketType { [key], [value] }
+		else
+			return key
+		end
+	end)
 
 	-- Allocates and initalizes memory for the hashtable. The metadata array is initalized to `MetadataEmpty`. Buckets are not initialized to any value.
 	-- Returns a quadruple: The first value is success, the second value is an opaque pointer which should be passed to `free`, the third value is the metadata array, and the forth value is the bucket array.
@@ -175,13 +191,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 			var previous_metadata = self.metadata[index]	
 
 			[self].metadata[index] = hash_result.h2
-			[self].buckets[index] = escape
-				if ValueType ~= nil then
-					emit(`BucketType { key = [key], value = [value] })
-				else
-					emit(`key)
-				end
-			end
+			[self].buckets[index] = CreateBucket(key, value)
 
 			if previous_metadata == MetadataEmpty then
 				[self].size = [self].size + 1
@@ -206,7 +216,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		end
 	else
 		terra DenseHashTable:store_handle(handle: BucketHandle, key: KeyType): int
-			StoreHandleBody(self, handle, key)
+			StoreHandleBody(self, handle, key, nil)
 		end
 
 		terra DenseHashTable:retrieve_handle(handle: BucketHandle): KeyType
@@ -237,19 +247,11 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		for i = 0, old_capacity do
 			if old_metadata[i] ~= MetadataEmpty then
 				var old_bucket: BucketType = old_buckets[i]
-				escape
-					if ValueType ~= nil then
-						emit(quote
-							var handle = self:lookup_handle(old_bucket.key)
-							var result = self:store_handle(handle, old_bucket.key, old_bucket.value)
-						end)
-					else
-						emit(quote
-							var handle = self:lookup_handle(old_bucket)
-							var result = self:store_handle(handle, old_bucket)
-						end)
-					end
-				end
+				var handle = self:lookup_handle([GetBucketKey(`old_bucket)])
+				var result = [MapBucketTypeValue(
+								`old_bucket,
+								function(s) return `self:store_handle(handle, [s].key, [s].value) end,
+								function(k) return `self:store_handle(handle, [k]) end)]
 
 				if result ~= 0 then
 					-- An error occured when rehashing. Reset the state of the hashtable and return an error.
