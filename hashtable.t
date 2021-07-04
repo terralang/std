@@ -17,8 +17,8 @@ local M = {}
 M.CTHashTable = CT.All(
 	CT.Field("capacity", CT.Integral),
 	CT.Field("size", CT.Integral),
-	CT.Method("resize", CT.Empty, CT.Integral),
-	CT.MetaConstraint(
+	CT.Method("resize", CT.Empty, CT.Integral)
+	--[[CT.MetaConstraint(
 		function(KeyType, ValueType, HandleType)
 			local lookup_constraint = CT.Method("lookup_handle", CT.Type(KeyType), CT.Type(HandleType))
 			-- This is just a tuple of (KeyType, ValueType)
@@ -38,12 +38,26 @@ M.CTHashTable = CT.All(
 			return CT.All(lookup_constraint, store_constraint, retrieve_constraint)
 		end,
 		CT.TerraType, CT.TerraType, CT.TerraType
-	)
+	)]]--
 )
+
+local function MakeHashFunctionConstraint(KeyType, HashType)
+	return CT.Function({KeyType}, HashType)
+end
+
+local function MakeEqualityFunctionConstraint(KeyType)
+	return CT.Function({KeyType, KeyType}, bool)
+end
 
 M.Implementation = {}
 
 function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc)
+	-- TODO: Rework this
+	local CTHashFn = MakeHashFunctionConstraint(KeyType, uint)
+	local CTEqFn = MakeEqualityFunctionConstraint(KeyType)
+	CTHashFn(HashFn)
+	CTEqFn(EqFn)
+
 	local MetadataHashBitmap = constant(uint8, 127) -- 0b01111111
 	local MetadataEmpty = constant(uint8, 128) -- 0b10000000
 	local GroupLength = constant(uint, 16)
