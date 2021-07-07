@@ -91,7 +91,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 	-- Return value of lookup_handle 
 	local BucketHandle = R.MakeResult(BucketIndex, int)
 	-- Return value of retrieve_handle
-	local RetrieveResult = BucketType.Choose(R.MakeResult(tuple(KeyType, ValueType), int), R.MakeResult(KeyType, int))
+	local RetrieveResult = BucketType:Choose(R.MakeResult(tuple(KeyType, ValueType), int), R.MakeResult(KeyType, int))
 
 	-- Allocates and initalizes memory for the hashtable. The metadata array is initalized to `MetadataEmpty`. Buckets are not initialized to any value.
 	local terra table_calloc(capacity: uint): CallocResult 
@@ -163,21 +163,22 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 			var metadata = self.metadata[index]
 
 			if metadata == MetadataEmpty or (metadata == hash_result.h2 and IsKeyEq(key, self.buckets[index])) then
-				return BucketHandleResult.result(BucketIndex {index, hash_result})
+				return BucketHandle.ok(BucketIndex {index, hash_result})
 			end
 		end
 
-		return BucketHandle.failure(1)
+		return BucketHandle.err(1)
 	end
 
 	local StoreHandleBody = macro(function(self, handle, key, value) 
 		return quote
-			if [handle].is_err then
-				return [handle].index
+			if [handle]:is_err() then
+				return [handle].err
 			end
 
-			var index = [handle].index
-			var hash_result = [handle].hash_result
+			var bucket_index = [handle].ok 
+			var index = bucket_index.index
+			var hash_result = bucket_index.hash_result
 			var previous_metadata = self.metadata[index]	
 
 			[self].metadata[index] = hash_result.h2
@@ -201,14 +202,13 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		end
 	end
 
-
 	terra DenseHashTable:retrieve_handle(handle: BucketHandle): RetrieveResult
-		if handle.is_err then
-			return KeyValueResult.err(handle.err)
+		if handle:is_err() then
+			return RetrieveResult.err(handle.err)
 		end
 
 		var bucket = self.buckets[handle.ok.index]
-		return RetrieveResult.ok([BucketType.Match(
+		return RetrieveResult.ok([BucketType:Match(
 									`bucket,
 									function(s) return `{[s].key, [s].value} end,
 									function(k) return k end)])
@@ -224,11 +224,11 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		var new_capacity = self.capacity * 2
 		var calloc_result = table_calloc(new_capacity)
 
-		if calloc_result.is_failure then
-			return calloc_result.failure
+		if calloc_result:is_err() then
+			return calloc_result.err
 		end
 
-		var new_opaque_ptr, new_metadata, new_buckets = calloc_result.result
+		var new_opaque_ptr, new_metadata, new_buckets = calloc_result.ok
 
 		reassign_internals(self, new_capacity, 0, new_opaque_ptr, new_metadata, new_buckets)
 
@@ -236,7 +236,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 			if old_metadata[i] ~= MetadataEmpty then
 				var old_bucket: BucketType.TerraType = old_buckets[i]
 				var handle = self:lookup_handle(GetBucketKey(old_bucket))
-				var result = [BucketType.Match(
+				var result = [BucketType:Match(
 								`old_bucket,
 								function(s) return `self:store_handle(handle, [s].key, [s].value) end,
 								function(k) return `self:store_handle(handle, [k]) end)]
