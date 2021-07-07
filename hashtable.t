@@ -10,6 +10,13 @@ local M = {}
 
 M.Implementation = {}
 
+-- Note for myself in the future, because I've done this at least five times now:
+-- No, you cannot simplify everything by condensing `KeyType` and `ValueType` into a single `BucketType`.
+-- IT. DOES. NOT. WORK.
+-- It works for every single function *except* `lookup_handle`. `lookup_handle` determines not just where 
+-- a potentially new key/value is supposed to go, but also what the value associated with the given key is.
+-- A `get` method that required you to specify the key AND the value would be pretty useless wouldn't it?
+
 local function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc)
 	local MetadataHashBitmap = constant(uint8, 127) -- 0b01111111
 	local MetadataEmpty = constant(uint8, 128) -- 0b10000000
@@ -120,7 +127,7 @@ local function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn,
 		var calloc_result = table_calloc(initial_capacity)
 
 		-- We are just assuming that the memory allocation succeeded. If it didn't then something much bigger is happening. 
-		var opaque_ptr, metadata, buckets = calloc_result.result
+		var opaque_ptr, metadata, buckets = calloc_result.ok
 
 		self:_init {
 			capacity = initial_capacity,
