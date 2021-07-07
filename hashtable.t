@@ -16,11 +16,15 @@ function M.Implementation.BucketType(KeyType, ValueType)
 		{ TerraType = KeyType, Tag = "KeyType" }
 	
 	function BucketType:Choose(S, K)
-		if self.Tag == "A" then
-			return a
+		if self.Tag == "StructType" then
+			return S
 		else
-			return b
+			return K
 		end
+	end
+
+	function BucketType:ChooseLazy(SFn, KFn)
+		return self:Choose(SFn, KFn)()
 	end
 
 	-- Calls either matchA or matchB with value as a parameter depending on what the type is.
@@ -29,11 +33,11 @@ function M.Implementation.BucketType(KeyType, ValueType)
 	end
 
 	function BucketType:CreateBucket(key, value)
-		self:Choose(`[self:TerraType] {[key], [value]}, key)
+		return self:ChooseLazy(function() return `[self.TerraType] {[key], [value]} end, function() return key end)
 	end
 
 	function BucketType:GetKey(bucket)
-		self:Choose(`[bucket].key, bucket)
+		return self:ChooseLazy(function() return `[bucket].key end, function() return bucket end)
 	end
 
 	return BucketType
@@ -52,8 +56,8 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 	local GroupLength = constant(uint, 16)
 
 	local BucketType = M.Implementation.BucketType(KeyType, ValueType)
-	local CreateBucket = macro(BucketType:CreateBucket)
-	local GetBucketKey = macro(BucketType:GetKey)
+	local CreateBucket = macro(function (key, value) return BucketType:CreateBucket(key, value) end)
+	local GetBucketKey = macro(function (bucket) return BucketType:GetKey(bucket) end)
 	local IsKeyEq = macro(function(key, bucket)
 		return `[EqFn]([key], GetBucketKey(bucket))
 	end)
