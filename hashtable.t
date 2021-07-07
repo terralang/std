@@ -1,136 +1,51 @@
 local A = require 'std.alloc'
 local O = require 'std.object'
 local CT = require 'std.constraint'
+local R = require 'std.result'
 
 local CStr = terralib.includec("string.h")
 local Cstdio = terralib.includec("stdio.h")
 
 local M = {}
 
--- Defines a low-level generic HashTable interface.
--- capacity = A field with an integer type that defines the capacity of the container.
--- size = A field with an integer type that defines the number of items in the contianer. Should always be less than or equal to capacity.
--- resize = A method that expands the capacity of the container. Returns 0 on success.
--- lookup_handle = A method that takes its a key and it's hash and returns a handle which refers to a location in the container that can be used for storage or retrevial.
--- store_handle = A method which takes a key (and a value if its a key/value store), and a Handle, and stores the item at the location. Returns 0 on success.
--- retrieve_handle = A method that takes a handle and returns the key or key and value at the location. May return null on failure.
-M.CTHashTable = CT.All(
-	CT.Field("capacity", CT.Integral),
-	CT.Field("size", CT.Integral),
-	CT.Method("resize", CT.Empty, CT.Integral)
-	--[[CT.MetaConstraint(
-		function(KeyType, ValueType, HandleType)
-			local lookup_constraint = CT.Method("lookup_handle", CT.Type(KeyType), CT.Type(HandleType))
-			-- This is just a tuple of (KeyType, ValueType)
-			local kvpair_constraint = CT.All(
-				CT.Field("_0", CT.Type(KeyType)),
-				CT.Field("_1", CT.Type(ValueType))
-			)
-			
-			local store_constraint = (ValueType ~= nil) and
-				CT.Method("store_handle", {CT.Type(HandleType), CT.Type(KeyType), CT.Type(ValueType)}, CT.Integral) or
-				CT.Method("store_handle", {CT.Type(HandleType), CT.Type(KeyType)}, CT.Integral)
-
-			local retrieve_constraint = (ValueType ~= nil) and 
-					CT.Method("retrieve_handle", CT.Type(HandleType), kvpair_constraint) or
-					CT.Method("retrieve_handle", CT.Type(HandleType), CT.Type(KeyType))
-
-			return CT.All(lookup_constraint, store_constraint, retrieve_constraint)
-		end,
-		CT.TerraType, CT.TerraType, CT.TerraType
-	)]]--
-)
-
-local function MakeHashFunctionConstraint(KeyType, HashType)
-	return CT.Function({KeyType}, HashType)
-end
-
-local function MakeEqualityFunctionConstraint(KeyType)
-	return CT.Function({KeyType, KeyType}, bool)
-end
-
 M.Implementation = {}
 
-function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc)
-	-- TODO: Rework this
-	local CTHashFn = MakeHashFunctionConstraint(KeyType, uint)
-	local CTEqFn = MakeEqualityFunctionConstraint(KeyType)
-	CTHashFn(HashFn)
-	CTEqFn(EqFn)
-
+local function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc)
 	local MetadataHashBitmap = constant(uint8, 127) -- 0b01111111
 	local MetadataEmpty = constant(uint8, 128) -- 0b10000000
 	local GroupLength = constant(uint, 16)
 
-	local BucketType = (ValueType ~= nil) and
+	-- TODO: I'd like to generalize this into a lua module.
+	local BucketType = {}
+	BucketType.TerraType = (ValueType ~= nil) and
 		struct {
 			key: KeyType
 			value: ValueType
 		} or
 		KeyType
-
-	local function MapBucketTypeValue(value, mapStruct, mapKey)
+	
+	function BucketType.Choose(structValue, keyValue)
 		if ValueType ~= nil then
-			return mapStruct(value)
+			return structValue
 		else
-			return mapKey(value)
+			return keyValue
 		end
 	end
 
-	local function GetBucketKey(bucket)
-		return MapBucketTypeValue(bucket, function(s) return `[s].key end, function(k) return k end)
+	function BucketType.Match(value, mapStruct, mapKey)
+		return BucketType.Choose(mapStruct, mapKey)(value)
 	end
+
+	local CreateBucket = macro(function(key, value)
+		return BucketType.Choose(`BucketType { [key], [value] }, key)
+	end)
 
 	local IsKeyEq = macro(function(key, bucket)
 		return `[EqFn]([key], [GetBucketKey(bucket)])
 	end)
 
-	local CreateBucket = macro(function(key, value)
-		if ValueType ~= nil then
-			return `BucketType { [key], [value] }
-		else
-			return key
-		end
-	end)
-
-	-- Allocates and initalizes memory for the hashtable. The metadata array is initalized to `MetadataEmpty`. Buckets are not initialized to any value.
-	-- Returns a quadruple: The first value is success, the second value is an opaque pointer which should be passed to `free`, the third value is the metadata array, and the forth value is the bucket array.
-	-- Note that if success is false, then all other values are null.
-	local terra table_calloc(capacity: uint): tuple(bool, &opaque, &uint8, &BucketType)
-		var opaque_ptr = Alloc:alloc_raw(capacity * (sizeof(BucketType) + 1))
-		
-		if opaque_ptr == nil then
-			return {false, nil, nil, nil}
-		end
-
-		var metadata_array = [&uint8](opaque_ptr)
-		var buckets_array = [&BucketType](metadata_array + capacity)
-
-		CStr.memset(metadata_array, MetadataEmpty, capacity)
-
-		return {true, opaque_ptr, metadata_array, buckets_array}
-	end
-
-	local struct HashResult {
-		initial_bucket_index: uint
-		h1: uint
-		h2: uint8
-	}
-
-	local struct BucketHandle {
-		iserror: bool
-		index: uint
-		hash_result: HashResult
-	}
-
-	local terra compute_hash(key: KeyType, capacity: uint): HashResult
-		var hash = [ HashFn ](key)
-
-		return HashResult {
-			initial_bucket_index = (hash >> 7) % capacity,
-			h1 = hash >> 7,
-			h2 = hash and MetadataHashBitmap
-		}
+	local GetBucketKey = macro(function(bucket)
+		return BucketType.Choose(`[bucket].key, bucket)
 	end
 
 	local struct DenseHashTable(O.Object) {
@@ -143,12 +58,56 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		-- Array of bytes holding the metadata of the table.
 		metadata: &uint8
 		-- The backing array of the hashtable.
-		buckets: &BucketType
+		buckets: &BucketType.TerraType
 	}
+
+	local struct HashResult {
+		initial_bucket_index: uint
+		h1: uint
+		h2: uint8
+	}
+
+	local struct BucketIndex {
+		index: uint
+		hash_result: HashResult
+	}
+
+	-- A triple containing an opaque pointer to pass to `free`, a pointer to a metadata array, and a pointer to a bucket array
+	local CallocResult = R.MakeResult(tuple(&opaque, &uint8, &BucketType.TerraType), int) 
+	-- Return value of lookup_handle 
+	local BucketHandle = R.MakeResult(BucketIndex, int)
+	-- Return value of retrieve_handle
+	local RetrieveResult = BucketType.Choose(R.MakeResult(tuple(KeyType, ValueType), int), R.MakeResult(KeyType, int))
+
+	-- Allocates and initalizes memory for the hashtable. The metadata array is initalized to `MetadataEmpty`. Buckets are not initialized to any value.
+	local terra table_calloc(capacity: uint): CallocResult 
+		var opaque_ptr = Alloc:alloc_raw(capacity * (sizeof(BucketType.TerraType) + 1))
+		
+		if opaque_ptr == nil then
+			return CallocResult.err(1)
+		end
+
+		var metadata_array = [&uint8](opaque_ptr)
+		var buckets_array = [&BucketType](metadata_array + capacity)
+
+		CStr.memset(metadata_array, MetadataEmpty, capacity)
+
+		return CallocResult.ok{opaque_ptr, metadata_array, buckets_array}
+	end
+
+	local terra compute_hash(key: KeyType, capacity: uint): HashResult
+		var hash = [ HashFn ](key)
+
+		return HashResult {
+			initial_bucket_index = (hash >> 7) % capacity,
+			h1 = hash >> 7,
+			h2 = hash and MetadataHashBitmap
+		}
+	end
 
 	-- Assigns all the fields of the hashtable to the specified values.
 	-- This is done because I'm not sure if I can reuse "self:_init" and we need saftey when mangling the internals in resize.
-	local terra reassign_internals(htable: &DenseHashTable, capacity: uint, size: uint, opaque_ptr: &opaque, metadata: &uint8, buckets: &BucketType)
+	local terra reassign_internals(htable: &DenseHashTable, capacity: uint, size: uint, opaque_ptr: &opaque, metadata: &uint8, buckets: &BucketType.TerraType)
 		htable.capacity = capacity
 		htable.size = size
 		htable.opaque_ptr = opaque_ptr
@@ -158,7 +117,10 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 
 	terra DenseHashTable:init()
 		var initial_capacity = GroupLength
-		var alloc_success, opaque_ptr, metadata, buckets = table_calloc(initial_capacity)
+		var calloc_result = table_calloc(initial_capacity)
+
+		-- We are just assuming that the memory allocation succeeded. If it didn't then something much bigger is happening. 
+		var opaque_ptr, metadata, buckets = calloc_result.result
 
 		self:_init {
 			capacity = initial_capacity,
@@ -187,16 +149,16 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 			var metadata = self.metadata[index]
 
 			if metadata == MetadataEmpty or (metadata == hash_result.h2 and IsKeyEq(key, self.buckets[index])) then
-				return BucketHandle {false, index, hash_result}
+				return BucketHandleResult.result(BucketIndex {index, hash_result})
 			end
 		end
 
-		return BucketHandle {true, -1, HashResult {0, 0, 0}}
+		return BucketHandle.failure(1)
 	end
 
 	local StoreHandleBody = macro(function(self, handle, key, value) 
 		return quote
-			if [handle].iserror then
+			if [handle].is_err then
 				return [handle].index
 			end
 
@@ -219,27 +181,23 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		terra DenseHashTable:store_handle(handle: BucketHandle, key: KeyType, value: ValueType): int
 			StoreHandleBody(self, handle, key, value)
 		end
-
-		terra DenseHashTable:retrieve_handle(handle: BucketHandle): tuple(KeyType, ValueType)
-			if handle.iserror then
-				return nil
-			end
-			
-			var bucket = self.buckets[handle.index]
-			return { bucket.key, bucket.value }
-		end
 	else
 		terra DenseHashTable:store_handle(handle: BucketHandle, key: KeyType): int
 			StoreHandleBody(self, handle, key, nil)
 		end
+	end
 
-		terra DenseHashTable:retrieve_handle(handle: BucketHandle): KeyType
-			if handle.iserror then
-				return nil
-			end
 
-			return self.buckets[handle.index]
+	terra DenseHashTable:retrieve_handle(handle: BucketHandle): RetrieveResult
+		if handle.is_err then
+			return KeyValueResult.err(handle.err)
 		end
+
+		var bucket = self.buckets[handle.ok.index]
+		return RetrieveResult.ok([BucketType.Match(
+									`bucket,
+									function(s) return `{[s].key, [s].value} end,
+									function(k) return k end)])
 	end
 
 	terra DenseHashTable:resize(): int
@@ -250,19 +208,21 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		var old_buckets = self.buckets
 
 		var new_capacity = self.capacity * 2
-		var alloc_success, new_opaque_ptr, new_metadata, new_buckets = table_calloc(new_capacity)
+		var calloc_result = table_calloc(new_capacity)
 
-		if not alloc_success then
-			return -1
+		if calloc_result.is_failure then
+			return calloc_result.failure
 		end
+
+		var new_opaque_ptr, new_metadata, new_buckets = calloc_result.result
 
 		reassign_internals(self, new_capacity, 0, new_opaque_ptr, new_metadata, new_buckets)
 
 		for i = 0, old_capacity do
 			if old_metadata[i] ~= MetadataEmpty then
-				var old_bucket: BucketType = old_buckets[i]
-				var handle = self:lookup_handle([GetBucketKey(`old_bucket)])
-				var result = [MapBucketTypeValue(
+				var old_bucket: BucketType.TerraType = old_buckets[i]
+				var handle = self:lookup_handle(GetBucketKey(`old_bucket))
+				var result = [BucketType.Match(
 								`old_bucket,
 								function(s) return `self:store_handle(handle, [s].key, [s].value) end,
 								function(k) return `self:store_handle(handle, [k]) end)]
@@ -271,7 +231,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 					-- An error occured when rehashing. Reset the state of the hashtable and return an error.
 					reassign_internals(self, old_capacity, old_size, old_opaque_ptr, old_metadata, old_buckets)
 					[Alloc]:free(new_opaque_ptr)
-					return 1
+					return result
 				end
 			end
 		end
