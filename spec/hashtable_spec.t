@@ -5,7 +5,8 @@ local CStr = terralib.includec("string.h")
 local Alloc = require 'std.alloc'
 
 describe("Implementation.DenseHashTable HashSet", function()
-	local IntegerHashSet = HT.Implementation.DenseHashTable(int, nil, HT.CreateDefaultHashFunction(int), HT.CreateDefaultEqualityFunction(int), Alloc.default_allocator)
+	local BucketType = HT.Implementation.BucketType(int)
+	local IntegerHashSet = HT.Implementation.DenseHashTable(BucketType, HT.CreateDefaultHashFunction(int), HT.CreateDefaultEqualityFunction(int), Alloc.default_allocator)
 
 	it("should allow you to insert items", terra()
 		var hash_set: IntegerHashSet
@@ -21,7 +22,8 @@ describe("Implementation.DenseHashTable HashSet", function()
 end)
 
 describe("Implementation.DenseHashTable HashMap", function()
-	local StringHashMap = HT.Implementation.DenseHashTable(rawstring, rawstring, HT.CreateDefaultHashFunction(rawstring), HT.CreateDefaultEqualityFunction(rawstring), Alloc.default_allocator)
+	local BucketType = HT.Implementation.BucketType(rawstring, rawstring)
+	local StringHashMap = HT.Implementation.DenseHashTable(BucketType, HT.CreateDefaultHashFunction(rawstring), HT.CreateDefaultEqualityFunction(rawstring), Alloc.default_allocator)
 	
 	it("should allow you to insert items", terra()
 		var hash_map: StringHashMap

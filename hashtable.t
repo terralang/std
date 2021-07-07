@@ -11,10 +11,22 @@ local M = {}
 M.Implementation = {}
 
 function M.Implementation.BucketType(KeyType, ValueType)
+	local BucketTypeMeta = {}
+
+	function BucketTypeMeta:__tostring()
+		local tag_section = "Tag: " .. self.Tag
+		local key_section = "KeyType: " .. tostring(self.KeyType)
+		local value_section = "ValueType: " .. (tostring(self.ValueType) or "nil")
+
+		return "BucketType { " .. tag_section .. ", " .. key_section .. ", " .. value_section .. " }"
+	end
+
 	local BucketType = (ValueType ~= nil) and
-		{ TerraType = struct { key: KeyType value: ValueType }, Tag = "StructType" } or
-		{ TerraType = KeyType, Tag = "KeyType" }
+		{ KeyType = KeyType, ValueType = ValueType, TerraType = struct { key: KeyType value: ValueType }, Tag = "StructType" } or
+		{ KeyType = KeyType, ValueType = nil, TerraType = KeyType, Tag = "KeyType" }
 	
+	setmetatable(BucketType, BucketTypeMeta)
+
 	function BucketType:Choose(S, K)
 		if self.Tag == "StructType" then
 			return S
@@ -23,39 +35,30 @@ function M.Implementation.BucketType(KeyType, ValueType)
 		end
 	end
 
-	function BucketType:ChooseLazy(SFn, KFn)
-		return self:Choose(SFn, KFn)()
+	function BucketType:ChooseFn(SFn, KFn, ...)
+		return self:Choose(SFn, KFn)(...)
 	end
 
-	-- Calls either matchA or matchB with value as a parameter depending on what the type is.
-	function BucketType:Match(value, S, K)
-		return self:Choose(S, K)(value)
+	function BucketType:Match(StructCase, KeyCase)
+		return self:ChooseFn(StructCase, KeyCase, self)
 	end
 
 	function BucketType:CreateBucket(key, value)
-		return self:ChooseLazy(function() return `[self.TerraType] {[key], [value]} end, function() return key end)
+		return self:ChooseFn(function() return `[self.TerraType] {[key], [value]} end, function() return key end)
 	end
 
 	function BucketType:GetKey(bucket)
-		return self:ChooseLazy(function() return `[bucket].key end, function() return bucket end)
+		return self:ChooseFn(function() return `[bucket].key end, function() return bucket end)
 	end
 
 	return BucketType
 end
 
--- Note for myself in the future, because I've done this at least five times now:
--- No, you cannot simplify everything by condensing `KeyType` and `ValueType` into a single `BucketType`.
--- Short answer: IT. DOES. NOT. WORK.
--- It works for every single function *except* `lookup_handle`. `lookup_handle` determines not just where 
--- a potentially new key/value is supposed to go, but also what the value associated with the given key is.
--- A `get` method that required you to specify the key AND the value would be pretty useless wouldn't it?
-
-function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc)
+function M.Implementation.DenseHashTable(BucketType, HashFn, EqFn, Alloc)
 	local MetadataHashBitmap = constant(uint8, 127) -- 0b01111111
 	local MetadataEmpty = constant(uint8, 128) -- 0b10000000
 	local GroupLength = constant(uint, 16)
 
-	local BucketType = M.Implementation.BucketType(KeyType, ValueType)
 	local CreateBucket = macro(function (key, value) return BucketType:CreateBucket(key, value) end)
 	local GetBucketKey = macro(function (bucket) return BucketType:GetKey(bucket) end)
 	local IsKeyEq = macro(function(key, bucket)
@@ -91,7 +94,9 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 	-- Return value of lookup_handle 
 	local BucketHandle = R.MakeResult(BucketIndex, int)
 	-- Return value of retrieve_handle
-	local RetrieveResult = BucketType:Choose(R.MakeResult(tuple(KeyType, ValueType), int), R.MakeResult(KeyType, int))
+	local RetrieveResult = R.MakeResult(BucketType:Match(
+		function(StructCase) return tuple(StructCase.KeyType, StructCase.ValueType) end,
+		function(KeyCase) return KeyCase.KeyType end), int)
 
 	-- Allocates and initalizes memory for the hashtable. The metadata array is initalized to `MetadataEmpty`. Buckets are not initialized to any value.
 	local terra table_calloc(capacity: uint): CallocResult 
@@ -109,7 +114,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		return CallocResult.ok{opaque_ptr, metadata_array, buckets_array}
 	end
 
-	local terra compute_hash(key: KeyType, capacity: uint): HashResult
+	local terra compute_hash(key: BucketType.KeyType, capacity: uint): HashResult
 		var hash = [ HashFn ](key)
 
 		return HashResult {
@@ -154,7 +159,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		CStr.memset(self, 0, sizeof(DenseHashTable))
 	end
 
-	terra DenseHashTable:lookup_handle(key: KeyType): BucketHandle 
+	terra DenseHashTable:lookup_handle(key: BucketType.KeyType): BucketHandle 
 		var hash_result = compute_hash(key, self.capacity)
 		var virtual_limit = self.capacity + hash_result.initial_bucket_index
 
@@ -192,15 +197,19 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		end
 	end)
 
-	if ValueType ~= nil then
-		terra DenseHashTable:store_handle(handle: BucketHandle, key: KeyType, value: ValueType): int
-			StoreHandleBody(self, handle, key, value)
+	BucketType:Match(
+		function(StructCase)
+			terra DenseHashTable:store_handle(handle: BucketHandle, key: StructCase.KeyType, value: StructCase.ValueType): int
+				StoreHandleBody(self, handle, key, value)
+			end
+		end,
+		function(KeyCase)
+			terra DenseHashTable:store_handle(handle: BucketHandle, key: KeyCase.KeyType): int
+				StoreHandleBody(self, handle, key, nil)
+			end
 		end
-	else
-		terra DenseHashTable:store_handle(handle: BucketHandle, key: KeyType): int
-			StoreHandleBody(self, handle, key, nil)
-		end
-	end
+	)
+
 
 	terra DenseHashTable:retrieve_handle(handle: BucketHandle): RetrieveResult
 		if handle:is_err() then
@@ -210,10 +219,10 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		var metadata = self.metadata[handle.ok.index]
 		if metadata ~= MetadataEmpty then
 			var bucket = self.buckets[handle.ok.index]
-			return RetrieveResult.ok([BucketType:Match(
-										`bucket,
+			return RetrieveResult.ok([BucketType:ChooseFn(
 										function(s) return `{[s].key, [s].value} end,
-										function(k) return k end)])
+										function(k) return k end,
+										`bucket)])
 		else
 			return RetrieveResult.err(0)
 		end
@@ -241,10 +250,10 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 			if old_metadata[i] ~= MetadataEmpty then
 				var old_bucket: BucketType.TerraType = old_buckets[i]
 				var handle = self:lookup_handle(GetBucketKey(old_bucket))
-				var result = [BucketType:Match(
-								`old_bucket,
+				var result = [BucketType:ChooseFn(
 								function(s) return `self:store_handle(handle, [s].key, [s].value) end,
-								function(k) return `self:store_handle(handle, [k]) end)]
+								function(k) return `self:store_handle(handle, [k]) end,
+								`old_bucket)]
 
 				if result ~= 0 then
 					-- An error occured when rehashing. Reset the state of the hashtable and return an error.
@@ -261,9 +270,16 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 		return 0
 	end
 
+	local function GenerateDebugHeader()
+		local bucket_type_str = BucketType:Match(
+			function(StructCase) return "struct { key: " .. tostring(StructCase.KeyType) .. ", value: " .. tostring(StructCase.ValueType) .. " }" end,
+			function(KeyCase) return tostring(KeyCase.KeyType) end)
+		return "DenseHashTable - BucketType: " .. bucket_type_str .. ", Size: %u, Capacity: %u, OpaquePtr: %p\n"
+	end
+
 	-- Prints a debug view of the metadata array to stdout
 	terra DenseHashTable:_debug_metadata_repr()
-		Cstdio.printf("HashTable Size: %u, Capacity: %u, OpaquePtr: %p\n", self.size, self.capacity, self.opaque_ptr)
+		Cstdio.printf([GenerateDebugHeader()], self.size, self.capacity, self.opaque_ptr)
 		for i = 0, self.capacity do
 			Cstdio.printf("[%u]\t%p - 0x%02X\n", i, self.metadata + i, self.metadata[i])
 		end
@@ -271,7 +287,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 
 	-- Prints a debug view of the table to stdout.
 	terra DenseHashTable:debug_full_repr()
-		Cstdio.printf("DenseHashTable Size: %u, Capacity: %u, OpaquePtr: %p\n", self.size, self.capacity, self.opaque_ptr)
+		Cstdio.printf([GenerateDebugHeader()], self.size, self.capacity, self.opaque_ptr)
 		for i = 0, self.capacity do
 			Cstdio.printf("[%u]\tMetadata: %p = 0x%02X\tBucket: %p = ", i, self.metadata + i, self.metadata[i], self.buckets + i)
 
@@ -295,13 +311,13 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 						end
 					end
 
-					BucketType:ChooseLazy(
-						function()
-							local format_string = MapFormatString(KeyType) .. ": " .. MapFormatString(ValueType) .. "\n"
+					BucketType:Match(
+						function(StructCase)
+							local format_string = MapFormatString(StructCase.KeyType) .. ": " .. MapFormatString(StructCase.ValueType) .. "\n"
 							emit(`Cstdio.printf(format_string, self.buckets[i].key, self.buckets[i].value))
 						end,
-						function()
-							emit(`Cstdio.printf([MapFormatString(KeyType) .. "\n"], self.buckets[i]))
+						function(KeyCase)
+							emit(`Cstdio.printf([MapFormatString(KeyCase.KeyType) .. "\n"], self.buckets[i]))
 						end
 					)
 				end
