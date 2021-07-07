@@ -10,6 +10,35 @@ local M = {}
 
 M.Implementation = {}
 
+function M.Implementation.BucketType(KeyType, ValueType)
+	local BucketType = (ValueType ~= nil) and
+		{ TerraType = struct { key: KeyType value: ValueType }, Tag = "StructType" } or
+		{ TerraType = KeyType, Tag = "KeyType" }
+	
+	function BucketType:Choose(S, K)
+		if self.Tag == "A" then
+			return a
+		else
+			return b
+		end
+	end
+
+	-- Calls either matchA or matchB with value as a parameter depending on what the type is.
+	function BucketType:Match(value, S, K)
+		return self:Choose(S, K)(value)
+	end
+
+	function BucketType:CreateBucket(key, value)
+		self:Choose(`[self:TerraType] {[key], [value]}, key)
+	end
+
+	function BucketType:GetKey(bucket)
+		self:Choose(`[bucket].key, bucket)
+	end
+
+	return BucketType
+end
+
 -- Note for myself in the future, because I've done this at least five times now:
 -- No, you cannot simplify everything by condensing `KeyType` and `ValueType` into a single `BucketType`.
 -- IT. DOES. NOT. WORK.
@@ -17,43 +46,17 @@ M.Implementation = {}
 -- a potentially new key/value is supposed to go, but also what the value associated with the given key is.
 -- A `get` method that required you to specify the key AND the value would be pretty useless wouldn't it?
 
-local function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc)
+function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc)
 	local MetadataHashBitmap = constant(uint8, 127) -- 0b01111111
 	local MetadataEmpty = constant(uint8, 128) -- 0b10000000
 	local GroupLength = constant(uint, 16)
 
-	-- TODO: I'd like to generalize this into a lua module.
-	local BucketType = {}
-	BucketType.TerraType = (ValueType ~= nil) and
-		struct {
-			key: KeyType
-			value: ValueType
-		} or
-		KeyType
-	
-	function BucketType.Choose(structValue, keyValue)
-		if ValueType ~= nil then
-			return structValue
-		else
-			return keyValue
-		end
-	end
-
-	function BucketType.Match(value, mapStruct, mapKey)
-		return BucketType.Choose(mapStruct, mapKey)(value)
-	end
-
-	local CreateBucket = macro(function(key, value)
-		return BucketType.Choose(`BucketType { [key], [value] }, key)
-	end)
-
+	local BucketType = M.Implementation.BucketType(KeyType, ValueType)
+	local CreateBucket = macro(BucketType:CreateBucket)
+	local GetBucketKey = macro(BucketType:GetKey)
 	local IsKeyEq = macro(function(key, bucket)
-		return `[EqFn]([key], [GetBucketKey(bucket)])
+		return `[EqFn]([key], GetBucketKey(bucket))
 	end)
-
-	local GetBucketKey = macro(function(bucket)
-		return BucketType.Choose(`[bucket].key, bucket)
-	end
 
 	local struct DenseHashTable(O.Object) {
 		-- The total number of buckets in the table.
@@ -95,7 +98,7 @@ local function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn,
 		end
 
 		var metadata_array = [&uint8](opaque_ptr)
-		var buckets_array = [&BucketType](metadata_array + capacity)
+		var buckets_array = [&BucketType.TerraType](metadata_array + capacity)
 
 		CStr.memset(metadata_array, MetadataEmpty, capacity)
 
@@ -228,7 +231,7 @@ local function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn,
 		for i = 0, old_capacity do
 			if old_metadata[i] ~= MetadataEmpty then
 				var old_bucket: BucketType.TerraType = old_buckets[i]
-				var handle = self:lookup_handle(GetBucketKey(`old_bucket))
+				var handle = self:lookup_handle(GetBucketKey(old_bucket))
 				var result = [BucketType.Match(
 								`old_bucket,
 								function(s) return `self:store_handle(handle, [s].key, [s].value) end,
