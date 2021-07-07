@@ -45,7 +45,7 @@ end
 
 -- Note for myself in the future, because I've done this at least five times now:
 -- No, you cannot simplify everything by condensing `KeyType` and `ValueType` into a single `BucketType`.
--- IT. DOES. NOT. WORK.
+-- Short answer: IT. DOES. NOT. WORK.
 -- It works for every single function *except* `lookup_handle`. `lookup_handle` determines not just where 
 -- a potentially new key/value is supposed to go, but also what the value associated with the given key is.
 -- A `get` method that required you to specify the key AND the value would be pretty useless wouldn't it?
@@ -207,11 +207,16 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 			return RetrieveResult.err(handle.err)
 		end
 
-		var bucket = self.buckets[handle.ok.index]
-		return RetrieveResult.ok([BucketType:Match(
-									`bucket,
-									function(s) return `{[s].key, [s].value} end,
-									function(k) return k end)])
+		var metadata = self.metadata[handle.ok.index]
+		if metadata ~= MetadataEmpty then
+			var bucket = self.buckets[handle.ok.index]
+			return RetrieveResult.ok([BucketType:Match(
+										`bucket,
+										function(s) return `{[s].key, [s].value} end,
+										function(k) return k end)])
+		else
+			return RetrieveResult.err(0)
+		end
 	end
 
 	terra DenseHashTable:resize(): int
@@ -266,7 +271,7 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 
 	-- Prints a debug view of the table to stdout.
 	terra DenseHashTable:debug_full_repr()
-		Cstdio.printf("HashTable Size: %u, Capacity: %u, OpaquePtr: %p\n", self.size, self.capacity, self.opaque_ptr)
+		Cstdio.printf("DenseHashTable Size: %u, Capacity: %u, OpaquePtr: %p\n", self.size, self.capacity, self.opaque_ptr)
 		for i = 0, self.capacity do
 			Cstdio.printf("[%u]\tMetadata: %p = 0x%02X\tBucket: %p = ", i, self.metadata + i, self.metadata[i], self.buckets + i)
 
@@ -275,8 +280,31 @@ function M.Implementation.DenseHashTable(KeyType, ValueType, HashFn, EqFn, Alloc
 			elseif self.buckets + i == nil then
 				Cstdio.printf("NULLPTR\n")
 			else
-				-- TODO: this won't work all the time, refactor to handle all types later
-				Cstdio.printf("%s\n", self.buckets[i])
+				escape
+					local function MapFormatString(T)
+						if T == rawstring then
+							return "%s"
+						elseif T:isintegral() then
+							return "%d"
+						elseif T:isfloat() then
+							return "%f"
+						elseif T:ispointer() then
+							return "%p"
+						else
+							return tostring(T)
+						end
+					end
+
+					BucketType:ChooseLazy(
+						function()
+							local format_string = MapFormatString(KeyType) .. ": " .. MapFormatString(ValueType) .. "\n"
+							emit(`Cstdio.printf(format_string, self.buckets[i].key, self.buckets[i].value))
+						end,
+						function()
+							emit(`Cstdio.printf([MapFormatString(KeyType) .. "\n"], self.buckets[i]))
+						end
+					)
+				end
 			end
 		end
 	end
@@ -304,7 +332,7 @@ function M.CreateDefaultHashFunction(KeyType)
 	-- TODO: Add more cases here
 	else
 		local terra naive_hash(obj: KeyType)
-			return M.hash_djb2(obj, sizeof(obj))
+			return M.hash_djb2([&int8] (&obj), sizeof(KeyType))
 		end
 		return naive_hash
 	end
