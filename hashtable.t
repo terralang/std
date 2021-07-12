@@ -5,6 +5,23 @@ local R = require 'std.result'
 local CStr = terralib.includec("string.h")
 local Cstdio = terralib.includec("stdio.h")
 
+local function MakeBucketType(KeyType, ValueType)
+	local struct BucketType {
+		key: KeyType
+	}
+
+	BucketType.IsKeyValue = ValueType ~= nil
+	if BucketType.IsKeyValue then
+		table.insert(BucketType.entries, {"value", ValueType})
+	end
+
+	function BucketType:ParamsToTypeString(self)
+		return "[" .. tostring(KeyType) .. (BucketType.IsKeyValue and (", " .. tostring(ValueType)) or "") .. "]"
+	end
+
+	return BucketType
+end
+
 local M = {}
 
 -- Implementation of djb2. Treats all data as a stream of bytes.
@@ -63,7 +80,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 
 	-- Determine if this hashtable should operate as a hash set or a hash map
 	local IsKeyValue = ValueType ~= nil
-	local BucketType = IsKeyValue and struct { key: KeyType, value: ValueType } or struct { key: KeyType }
+	local BucketType = MakeBucketType(KeyType, ValueType)
 
 	local struct HashInformation {
 		key: KeyType
@@ -272,8 +289,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		end
 	end
 
-	local DebugTypeInformation = "{ key: " .. tostring(KeyType) .. ( IsKeyValue and ", value: " .. tostring(ValueType) or "") .. " }"
-	local DebugHeaderString = "HashTable " .. DebugTypeInformation .. " Size: %u; Capacity: %u; OpaquePtr: %p\n"
+	local DebugHeaderString = "HashTable" .. BucketType:ParamsToTypeString() .. " Size: %u; Capacity: %u; OpaquePtr: %p\n"
 
 	-- Prints a debug view of the metadata array to stdout
 	terra HashTable:debug_metadata_repr()
@@ -295,10 +311,12 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 				Cstdio.printf("NULLPTR\n")
 			else
 				-- TODO: this won't work all the time, refactor to handle all types later
-				if IsKeyValue then
-					Cstdio.printf("{ key = %s, value = %s }\n", self.buckets[i].key, self.buckets[i].value)
-				else
-					Cstdio.printf("%s", self.buckets[i].key)
+				escape
+					if IsKeyValue then
+						emit(`Cstdio.printf("{ key = %s, value = %s }\n", self.buckets[i].key, self.buckets[i].value))
+					else
+						emit(`Cstdio.printf("%s\n", self.buckets[i].key))
+					end
 				end
 			end
 		end
