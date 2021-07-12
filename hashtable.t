@@ -63,7 +63,9 @@ M.Errors = {
 	-- There was an error allocating memory
 	AllocationError = constant(uint, 1),
 	-- An error occured because the hash_table is at capacity
-	AtCapacity = constant(uint, 2)
+	AtCapacity = constant(uint, 2),
+	-- One of the values passed as an argument was incorrect
+	ValueError = constant(uint, 4)
 }
 
 function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
@@ -180,12 +182,16 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		return InsertResult.ok(InsertData {old_metadata, index, hash_info})
 	end
 
-	local terra find_next_power_of_two(starting: uint, minimum: uint): uint
-		while starting < minimum do
-			starting = starting * 2
-		end
-		
-		return starting
+	local terra find_next_power_of_two(m: uint): uint
+		-- TODO: This only works for 32 bit integers. Need to modifiy for 64 bit if the int size is 64 bit.
+		m = m - 1
+		m = m or (m >> 1)
+		m = m or (m >> 2)
+		m = m or (m >> 4)
+		m = m or (m >> 8)
+		m = m or (m >> 16)
+		m = m + 1
+		return m
 	end
 
 	terra HashTable:init()
@@ -210,14 +216,15 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		CStr.memset(self, 0, sizeof(HashTable)) 
 	end
 
-	-- Resizes the hashtable to be at least the size of the requested_capacity. Returns 0 if there was no error. 
+	-- Resizes the hashtable to be at least the size of the requested_capacity.
+	-- Returns 0 if there was no error. 
 	terra HashTable:reserve(requested_capacity: uint): uint
 		-- If the requested_capacity is lower than self.capacity, return
 		if requested_capacity < self.capacity then
-			return 0
+			return M.Errors.ValueError
 		end
 
-		var new_capacity = find_next_power_of_two(self.capacity, requested_capacity) 
+		var new_capacity = find_next_power_of_two(requested_capacity) 
 		var calloc_result = table_calloc(new_capacity)
 
 		if calloc_result:is_err() then
@@ -262,7 +269,9 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	local InsertBody = macro(function(self, bucket)
 		return quote
 			if [self].size == [self].capacity then
-				[self]:reserve([self].capacity * 2)
+				-- Reserve computes the next power of two, so this will double capacity.
+				-- passing in [self].capacity * 2 will quadruple capacity instead
+				[self]:reserve([self].capacity + 1)
 			end
 			
 			var insert_result = insert_bucket([bucket], [self].metadata, [self].buckets, [self].capacity)
