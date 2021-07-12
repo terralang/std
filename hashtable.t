@@ -110,7 +110,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		end
 
 		var metadata_array = [&uint8](opaque_ptr)
-		var buckets_array = [&KeyType](metadata_array + capacity)
+		var buckets_array = [&BucketType](metadata_array + capacity)
 
 		CStr.memset(metadata_array, MetadataEmpty, capacity)
 
