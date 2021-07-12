@@ -160,7 +160,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		metadata_array[index] = hash_info.h2
 		buckets_array[index] = bucket
 
-		return InsertResult.ok{old_metadata, index, hash_info}
+		return InsertResult.ok(InsertData {old_metadata, index, hash_info})
 	end
 
 	local terra find_next_power_of_two(starting: uint, minimum: uint): uint
@@ -172,7 +172,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	end
 
 	terra HashTable:init()
-		var initial_capacity = SM.GroupLength
+		var initial_capacity = GroupLength
 		var calloc_result = table_calloc(initial_capacity)
 		
 		if calloc_result:is_ok() then
@@ -217,7 +217,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 
 				if insert_result:is_err() then
 					[Alloc]:free_raw(new_opaque)
-					return inset_result.err
+					return insert_result.err
 				end
 			end
 		end
@@ -233,7 +233,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 
 	terra HashTable:has(key: KeyType): bool
 		var hash_information = compute_hash_information(key, self.capacity)
-		var probe_result = linear_probe(self, key, hash_information)
+		var probe_result = linear_probe(hash_information, self.metadata, self.buckets, self.capacity)
 
 		if probe_result:is_ok() and self.metadata[probe_result.ok] ~= MetadataEmpty then
 			return true
@@ -245,7 +245,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	local InsertBody = macro(function(self, bucket)
 		return quote
 			if [self].size == [self].capacity then
-				[self]:resize([self].capacity * 2)
+				[self]:reserve([self].capacity * 2)
 			end
 			
 			var insert_result = insert_bucket([bucket], [self].metadata, [self].buckets, [self].capacity)
@@ -268,7 +268,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		end
 	else
 		terra HashTable:insert(key: KeyType): uint
-			return InsertBody(self, { key = key })
+			return InsertBody(self, BucketType { key = key })
 		end
 	end
 
