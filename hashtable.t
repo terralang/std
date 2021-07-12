@@ -7,6 +7,29 @@ local Cstdio = terralib.includec("stdio.h")
 
 local M = {}
 
+function M.CreateDefaultHashFunction(KeyType)
+	if KeyType == rawstring then
+		local terra default_string_hash(str: KeyType)
+			return M.hash_djb2(str, CStr.strlen(str))
+		end
+		return default_string_hash
+	-- TODO: Add more cases here
+	else
+		local terra naive_hash(obj: KeyType)
+			return M.hash_djb2(obj, sizeof(obj))
+		end
+		return naive_hash
+	end
+end
+
+function M.CreateDefaultEqualityFunction(KeyType)
+	-- TODO: Need more cases here too
+	local terra naive_equal_function(k1: KeyType, k2: KeyType): bool
+		return k1 == k2
+	end
+	return naive_equal_function
+end
+
 -- Using error codes instead of strings because it's easier to define the nature of the error since we don't have standardized error types.
 function M.Errors = {
 	-- There was an error allocating memory
@@ -16,6 +39,13 @@ function M.Errors = {
 }
 
 function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
+	-- Default parameters
+	HashFn = HashFn or CreateDefaultHashFunction(KeyType)
+	EqFn = EqFn or CreateDefaultEqualityFunction(KeyType)
+	Options = Options or {}
+	Alloc = Alloc or A.default_allocator
+
+	-- Constants
 	local MetadataHashBitmap = constant(uint8, 127) -- 0b01111111
 	local MetadataEmpty = constant(uint8, 128) -- 0b10000000
 	local GroupLength = constant(uint, 16)
@@ -277,25 +307,3 @@ terra M.hash_djb2(data: &int8, size: uint): uint
 	return hash
 end
 
-function M.CreateDefaultHashFunction(KeyType)
-	if KeyType == rawstring then
-		local terra default_string_hash(str: KeyType)
-			return M.hash_djb2(str, CStr.strlen(str))
-		end
-		return default_string_hash
-	-- TODO: Add more cases here
-	else
-		local terra naive_hash(obj: KeyType)
-			return M.hash_djb2(obj, sizeof(obj))
-		end
-		return naive_hash
-	end
-end
-
-function M.CreateDefaultEqualityFunction(KeyType)
-	-- TODO: Need more cases here too
-	local terra naive_equal_function(k1: KeyType, k2: KeyType): bool
-		return k1 == k2
-	end
-	return naive_equal_function
-end
