@@ -212,8 +212,10 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	end
 
 	terra HashTable:destruct()
-		[Alloc]:free_raw(self.opaque_ptr)
-		CStr.memset(self, 0, sizeof(HashTable)) 
+		if self.opaque_ptr ~= nil then
+			[Alloc]:free_raw(self.opaque_ptr)
+			CStr.memset(self, 0, sizeof(HashTable))
+		end
 	end
 
 	-- Resizes the hashtable to be at least the size of the requested_capacity.
@@ -241,6 +243,9 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 
 				if insert_result:is_err() then
 					[Alloc]:free_raw(new_opaque)
+					new_opaque = nil
+					new_metadata = nil
+					new_buckets = nil
 					return insert_result.err
 				end
 			end
@@ -298,9 +303,9 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		end
 	end
 
+	-- Debug print functions
 	local DebugHeaderString = "HashTable" .. BucketType:ParamsToTypeString() .. " Size: %u; Capacity: %u; OpaquePtr: %p\n"
 
-	-- Prints a debug view of the metadata array to stdout
 	terra HashTable:debug_metadata_repr()
 		Cstdio.printf(DebugHeaderString, self.size, self.capacity, self.opaque_ptr)
 		for i = 0, self.capacity do
