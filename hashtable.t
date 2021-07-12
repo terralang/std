@@ -178,7 +178,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	end
 
 	terra HashTable:destruct()
-		[Alloc]:free_raw()
+		[Alloc]:free_raw(self.opaque_ptr)
 		CStr.memset(self, 0, sizeof(HashTable)) 
 	end
 
