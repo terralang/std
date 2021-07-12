@@ -136,7 +136,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 			var index = virtual_index and (capacity -1)
 			var metadata = metadata_array[index]
 
-			if metadata == MetadataEmpty or (metadata == hash_result.h2 and [EqFn](hash.key, buckets_array[index].key)) then
+			if metadata == MetadataEmpty or (metadata == hash.h2 and [EqFn](hash.key, buckets_array[index].key)) then
 				return ProbeResult.ok(index)
 			end
 		end
