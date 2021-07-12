@@ -264,15 +264,15 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 
 	if IsKeyValue then
 		terra HashTable:insert(key: KeyType, value: ValueType): uint
-			return InsertBody(self, BucketType { key = key, value = value })
+			InsertBody(self, BucketType { key = key, value = value })
 		end
 	else
 		terra HashTable:insert(key: KeyType): uint
-			return InsertBody(self, BucketType { key = key })
+			InsertBody(self, BucketType { key = key })
 		end
 	end
 
-	local DebugTypeInformation = "{ key: " .. tostring(KeyType) .. ( IsKeyValue and ", value: " .. tostring(ValueType)) .. " }"
+	local DebugTypeInformation = "{ key: " .. tostring(KeyType) .. ( IsKeyValue and ", value: " .. tostring(ValueType) or "") .. " }"
 	local DebugHeaderString = "HashTable " .. DebugTypeInformation .. " Size: %u; Capacity: %u; OpaquePtr: %p\n"
 
 	-- Prints a debug view of the metadata array to stdout
