@@ -146,11 +146,11 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 
 	-- Inserts a bucket into the provided hashtable.
 	-- Returns a result containing an InsertData or an error code 
-	local terra insert_bucket(bucket: BucketType, metadata_array: &uint8, buckets_array: BucketType, capacity: uint): InsertResult 
+	local terra insert_bucket(bucket: BucketType, metadata_array: &uint8, buckets_array: &BucketType, capacity: uint): InsertResult 
 		var hash_info = compute_hash_information(bucket.key, capacity)
 		var probe_result = linear_probe(hash_info, metadata_array, buckets_array, capacity)
 
-		if probe_result.is_err() then
+		if probe_result:is_err() then
 			return InsertResult.err(probe_result.err)
 		end
 
@@ -175,7 +175,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		var initial_capacity = SM.GroupLength
 		var calloc_result = table_calloc(initial_capacity)
 		
-		if calloc_result.is_ok() then
+		if calloc_result:is_ok() then
 			var opaque_ptr, metadata, buckets = calloc_result.ok
 			
 			self:_init {
@@ -203,7 +203,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		var new_capacity = find_next_power_of_two(self.capacity, requested_capacity) 
 		var calloc_result = table_calloc(new_capacity)
 
-		if calloc_result.is_err() then
+		if calloc_result:is_err() then
 			return calloc_result.err
 		end
 
@@ -215,7 +215,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 				var bucket = self.buckets[i]
 				var insert_result = insert_bucket(bucket, new_metadata, new_buckets, new_capacity)
 
-				if insert_result.is_err() then
+				if insert_result:is_err() then
 					[Alloc]:free_raw(new_opaque)
 					return inset_result.err
 				end
@@ -235,7 +235,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		var hash_information = compute_hash_information(key, self.capacity)
 		var probe_result = linear_probe(self, key, hash_information)
 
-		if probe_result.is_ok() and self.metadata[probe_result.ok] ~= MetadataEmpty then
+		if probe_result:is_ok() and self.metadata[probe_result.ok] ~= MetadataEmpty then
 			return true
 		else
 			return false
@@ -250,7 +250,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 			
 			var insert_result = insert_bucket([bucket], [self].metadata, [self].buckets, [self].capacity)
 
-			if insert_result.is_err() then
+			if insert_result:is_err() then
 				return insert_result.err
 			end
 
