@@ -271,7 +271,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 				return insert_result.err
 			end
 
-			if insert_result.ok.old_metadata ~= MetadataEmpty then
+			if insert_result.ok.old_metadata == MetadataEmpty then
 				self.size = self.size + 1
 			end 
 

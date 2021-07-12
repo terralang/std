@@ -10,13 +10,14 @@ describe("Hashtable without values", function()
 
 		var expected = {"STRONK", "Identity"}
 
-		hash_set.insert(expected._1)
-		hash_set.insert(expected._2)
+		assert.equal(0, hash_set:insert(expected._0))
+		assert.equal(0, hash_set:insert(expected._1))
 
-		hash_set.debug_full_repr()
+		hash_set:debug_full_repr()
 
-		assert.is_true(hash_set.has(expected._1))
-		assert.is_true(hash_set.has(expected._2))
+		assert.is_true(hash_set:has(expected._0))
+		assert.is_true(hash_set:has(expected._1))
+		assert.equal(2, hash_set.size)
 	end)
 end)
 
