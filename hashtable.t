@@ -7,6 +7,17 @@ local Cstdio = terralib.includec("stdio.h")
 
 local M = {}
 
+-- Implementation of djb2. Treats all data as a stream of bytes.
+terra M.hash_djb2(data: &int8, size: uint): uint
+	var hash: uint = 5381
+
+	for i = 0, size do
+		hash = ((hash << 5) + hash * 33) + data[i]
+	end
+
+	return hash
+end
+
 function M.CreateDefaultHashFunction(KeyType)
 	if KeyType == rawstring then
 		local terra default_string_hash(str: KeyType)
@@ -31,17 +42,17 @@ function M.CreateDefaultEqualityFunction(KeyType)
 end
 
 -- Using error codes instead of strings because it's easier to define the nature of the error since we don't have standardized error types.
-function M.Errors = {
+M.Errors = {
 	-- There was an error allocating memory
-	AllocationError = constant(uint, 1)
+	AllocationError = constant(uint, 1),
 	-- An error occured because the hash_table is at capacity
 	AtCapacity = constant(uint, 2)
 }
 
 function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	-- Default parameters
-	HashFn = HashFn or CreateDefaultHashFunction(KeyType)
-	EqFn = EqFn or CreateDefaultEqualityFunction(KeyType)
+	HashFn = HashFn or M.CreateDefaultHashFunction(KeyType)
+	EqFn = EqFn or M.CreateDefaultEqualityFunction(KeyType)
 	Options = Options or {}
 	Alloc = Alloc or A.default_allocator
 
@@ -183,20 +194,20 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	end
 
 	-- Resizes the hashtable to be at least the size of the requested_capacity. Returns 0 if there was no error. 
-	terra HashTable:resize(requested_capacity: uint): uint
+	terra HashTable:reserve(requested_capacity: uint): uint
 		-- If the requested_capacity is lower than self.capacity, return
 		if requested_capacity < self.capacity then
 			return 0
 		end
 
-		local new_capacity = find_next_power_of_two(self.capacity, requested_capacity) 
-		local calloc_result = table_calloc(new_capacity)
+		var new_capacity = find_next_power_of_two(self.capacity, requested_capacity) 
+		var calloc_result = table_calloc(new_capacity)
 
 		if calloc_result.is_err() then
 			return calloc_result.err
 		end
 
-		local new_opaque, new_metadata, new_buckets = calloc_result.ok 
+		var new_opaque, new_metadata, new_buckets = calloc_result.ok 
 
 		-- Iterate through the old data and rehash existing entries
 		for i = 0, self.capacity do
@@ -296,14 +307,5 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	return HashTable
 end
 
--- Implementation of djb2. Treats all data as a stream of bytes.
-terra M.hash_djb2(data: &int8, size: uint): uint
-	var hash: uint = 5381
 
-	for i = 0, size do
-		hash = ((hash << 5) + hash * 33) + data[i]
-	end
-
-	return hash
-end
-
+return M
