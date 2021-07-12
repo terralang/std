@@ -1,49 +1,24 @@
-local O = require 'std.object'
 local HT = require 'std.hashtable'
-local CIO = terralib.includec("stdio.h")
-local CStr = terralib.includec("string.h")
-local Alloc = require 'std.alloc'
+local O = require 'std.object'
 
-describe("Implementation.DenseHashTable HashSet", function()
-	local BucketType = HT.Implementation.BucketType(int)
-	local IntegerHashSet = HT.Implementation.DenseHashTable(BucketType, HT.CreateDefaultHashFunction(int), HT.CreateDefaultEqualityFunction(int), Alloc.default_allocator)
 
-	it("should allow you to insert items", terra()
-		var hash_set: IntegerHashSet
-		O.new(hash_set)
- 
-		var expected = 621
-		var handle = hash_set:lookup_handle(expected)
-		var store_result = hash_set:store_handle(handle, expected)
+describe("Hashtable without values", function()
+	local StringHashSet = HT.HashTable(rawstring)
 
-		assert.is_true(store_result == 0)
+	it("should insert and check the existence of values", terra()
+		var hash_set = O.new(StringHashSet)
+
+		var expected = {"STRONK", "Identity"}
+
+		hash_set.insert(expected._1)
+		hash_set.insert(expected._2)
+
+		hash_set.debug_full_repr()
+
+		assert.is_true(hash_set.has(expected._1))
+		assert.is_true(hash_set.has(expected._2))
 	end)
-
 end)
 
 describe("Implementation.DenseHashTable HashMap", function()
-	local BucketType = HT.Implementation.BucketType(rawstring, rawstring)
-	local StringHashMap = HT.Implementation.DenseHashTable(BucketType, HT.CreateDefaultHashFunction(rawstring), HT.CreateDefaultEqualityFunction(rawstring), Alloc.default_allocator)
-	
-	it("should allow you to insert items", terra()
-		var hash_map: StringHashMap
-		O.new(hash_map)
-
-		var expected_key1 = "Summer Kennedy"
-		var expected_value1 = "Oh My My"
-
-		var expected_key2 = "Des Rocs"
-		var expected_value2 = "Living Proof"
-
-		var handle1 = hash_map:lookup_handle(expected_key1)
-		var handle2 = hash_map:lookup_handle(expected_key2)
-
-		var store_result1 = hash_map:store_handle(handle1, expected_key1, expected_value1)
-		var store_result2 = hash_map:store_handle(handle2, expected_key2, expected_value2)
-
-		assert.is_true(store_result1 == 0)
-		assert.is_true(store_result2 == 0)
-
-		hash_map:debug_full_repr()
-	end)
 end)
