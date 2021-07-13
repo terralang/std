@@ -286,6 +286,23 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		end
 	end
 
+	terra HashTable:remove(key: KeyType): uint
+		var result = hash_probe(key, self.metadata, self.buckets, self.capacity)
+
+		if result:is_ok() then
+			var hash_info, index = result.ok
+
+			if self.metadata[index] ~= MetadataEmpty then
+				self.metadata[index] == MetadataEmpty
+				CStr.memset(self.buckets + index, 0, sizeof(BucketType))
+			end
+
+			return 0
+		else
+			return result.err
+		end
+	end
+
 	local InsertBody = macro(function(self, bucket)
 		return quote
 			if [self].size == [self].capacity then
