@@ -66,7 +66,9 @@ M.Errors = {
 	-- An error occured because the hash_table is at capacity
 	AtCapacity = constant(uint, 2),
 	-- One of the values passed as an argument was incorrect
-	ValueError = constant(uint, 4)
+	ValueError = constant(uint, 3),
+	-- The key was not found
+	NotFound = constant(uint, 4)
 }
 
 function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
@@ -309,6 +311,22 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	if IsKeyValue then
 		terra HashTable:insert(key: KeyType, value: ValueType): uint
 			InsertBody(self, BucketType { key = key, value = value })
+		end
+
+		local GetResult = R.MakeResult(ValueType, M.Errors.ErrorType) 
+
+		terra HashTable:get(key: KeyType): GetResult
+			var result = hash_probe(key, self.metadata, self.buckets, self.capacity)
+			if result:is_err() then
+				return GetResult.err(result.err)
+			end
+			var hash_info, index = result.ok
+
+			if self.metadata[index] == MetadataEmpty then
+				return GetResult.err(M.Errors.NotFound)
+			else
+				return GetResult.ok(self.buckets[index])
+			end
 		end
 	else
 		terra HashTable:insert(key: KeyType): uint
