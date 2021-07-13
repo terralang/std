@@ -60,6 +60,7 @@ end
 
 -- Using error codes instead of strings because it's easier to define the nature of the error since we don't have standardized error types.
 M.Errors = {
+	ErrorType = uint,
 	-- There was an error allocating memory
 	AllocationError = constant(uint, 1),
 	-- An error occured because the hash_table is at capacity
@@ -114,9 +115,10 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	}
 
 	-- Result types
-	local CallocResult = R.MakeResult(tuple(&opaque, &uint8, &BucketType), uint)
-	local ProbeResult = R.MakeResult(uint, uint)
-	local InsertResult = R.MakeResult(InsertData, uint)
+	local CallocResult = R.MakeResult(tuple(&opaque, &uint8, &BucketType), M.Errors.ErrorType)
+	local ProbeResult = R.MakeResult(uint, M.Errors.ErrorType)
+	local HashProbeResult = R.MakeResult(tuple(HashInformation, uint), M.Errors.ErrorType)
+	local InsertResult = R.MakeResult(InsertData, M.Errors.ErrorType)
 
 	-- Allocates and initalizes memory for the hashtable. The metadata array is initalized to `MetadataEmpty`. Buckets are not initialized to any value.
 	-- Returns a Result containing either a triple or an error code.
@@ -163,17 +165,29 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		return ProbeResult.err(M.Errors.AtCapacity)
 	end 
 
-	-- Inserts a bucket into the provided hashtable.
-	-- Returns a result containing an InsertData or an error code 
-	local terra insert_bucket(bucket: BucketType, metadata_array: &uint8, buckets_array: &BucketType, capacity: uint): InsertResult 
-		var hash_info = compute_hash_information(bucket.key, capacity)
+	-- Computes the hash of key which is then used to probe for the index.
+	-- This is a convience function for `compute_hash_information` and `linear_probe`
+	local terra hash_probe(key: KeyType, metadata_array: &uint8, buckets_array: &BucketType, capacity: uint): HashProbeResult
+		var hash_info = compute_hash_information(key, capacity)
 		var probe_result = linear_probe(hash_info, metadata_array, buckets_array, capacity)
 
 		if probe_result:is_err() then
-			return InsertResult.err(probe_result.err)
+			return HashProbeResult.err(probe_result.err)
 		end
 
-		var index = probe_result.ok
+		return HashProbeResult.ok{hash_info, probe_result.ok}
+	end
+
+	-- Inserts a bucket into the provided hashtable.
+	-- Returns a result containing an InsertData or an error code 
+	local terra insert_bucket(bucket: BucketType, metadata_array: &uint8, buckets_array: &BucketType, capacity: uint): InsertResult 
+		var hp_result = hash_probe(bucket.key, metadata_array, buckets_array, capacity)
+		
+		if hp_result:is_err() then
+			return InsertResult.err(hp_result.err)
+		end
+
+		var hash_info, index = hp_result.ok
 		var old_metadata = metadata_array[index]
 
 		metadata_array[index] = hash_info.h2
@@ -261,10 +275,9 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	end
 
 	terra HashTable:has(key: KeyType): bool
-		var hash_information = compute_hash_information(key, self.capacity)
-		var probe_result = linear_probe(hash_information, self.metadata, self.buckets, self.capacity)
+		var hash_probe_result = hash_probe(key, self.metadata, self.buckets, self.capacity) 
 
-		if probe_result:is_ok() and self.metadata[probe_result.ok] ~= MetadataEmpty then
+		if hash_probe_result:is_ok() and self.metadata[hash_probe_result.ok._1] ~= MetadataEmpty then
 			return true
 		else
 			return false
