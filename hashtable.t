@@ -184,18 +184,18 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	-- Returns a result containing an InsertData or an error code 
 	local terra insert_bucket(bucket: BucketType, metadata_array: &uint8, buckets_array: &BucketType, capacity: uint): InsertResult 
 		var hp_result = hash_probe(bucket.key, metadata_array, buckets_array, capacity)
-		
-		if hp_result:is_err() then
+	
+		if hp_result:is_ok() then
+			var hash_info, index = hp_result.ok
+			var old_metadata = metadata_array[index]
+
+			metadata_array[index] = hash_info.h2
+			buckets_array[index] = bucket
+
+			return InsertResult.ok(InsertData {old_metadata, index, hash_info})
+		else
 			return InsertResult.err(hp_result.err)
 		end
-
-		var hash_info, index = hp_result.ok
-		var old_metadata = metadata_array[index]
-
-		metadata_array[index] = hash_info.h2
-		buckets_array[index] = bucket
-
-		return InsertResult.ok(InsertData {old_metadata, index, hash_info})
 	end
 
 	local terra find_next_power_of_two(m: uint): uint
@@ -277,9 +277,9 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	end
 
 	terra HashTable:has(key: KeyType): bool
-		var hash_probe_result = hash_probe(key, self.metadata, self.buckets, self.capacity) 
+		var result = hash_probe(key, self.metadata, self.buckets, self.capacity) 
 
-		if hash_probe_result:is_ok() and self.metadata[hash_probe_result.ok._1] ~= MetadataEmpty then
+		if result:is_ok() and self.metadata[result.ok._1] ~= MetadataEmpty then
 			return true
 		else
 			return false
@@ -294,17 +294,17 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 				[self]:reserve([self].capacity + 1)
 			end
 			
-			var insert_result = insert_bucket([bucket], [self].metadata, [self].buckets, [self].capacity)
+			var result = insert_bucket([bucket], [self].metadata, [self].buckets, [self].capacity)
 
-			if insert_result:is_err() then
-				return insert_result.err
+			if result:is_ok() then
+				if result.ok.old_metadata == MetadataEmpty then
+					self.size = self.size + 1
+				end 
+
+				return 0
+			else
+				return result.err
 			end
-
-			if insert_result.ok.old_metadata == MetadataEmpty then
-				self.size = self.size + 1
-			end 
-
-			return 0
 		end
 	end)
 
@@ -317,15 +317,16 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 
 		terra HashTable:get(key: KeyType): GetResult
 			var result = hash_probe(key, self.metadata, self.buckets, self.capacity)
-			if result:is_err() then
-				return GetResult.err(result.err)
-			end
-			var hash_info, index = result.ok
+			if result:is_ok() then
+				var hash_info, index = result.ok
 
-			if self.metadata[index] == MetadataEmpty then
-				return GetResult.err(M.Errors.NotFound)
+				if self.metadata[index] == MetadataEmpty then
+					return GetResult.err(M.Errors.NotFound)
+				else
+					return GetResult.ok(self.buckets[index])
+				end
 			else
-				return GetResult.ok(self.buckets[index])
+				return GetResult.err(result.err)
 			end
 		end
 	else
