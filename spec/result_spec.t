@@ -13,6 +13,13 @@ describe("ErrorResult", function()
 		assert.is_true(to:is_err())
 		assert.equal(709, to.err)
 	end)
+
+	it("reports is_err and is_ok correctly", terra()
+		var sut = TestError { 709 }
+
+		assert.is_true(sut:is_err())
+		assert.is_false(sut:is_ok())
+	end)
 end)
 
 describe("OkayResult", function()
@@ -24,6 +31,13 @@ describe("OkayResult", function()
 
 		assert.is_true(to:is_ok())
 		assert.equal(147.762, to.ok)
+	end)
+
+	it("reports is_err and is_ok correctly", terra()
+		var sut = TestOkay { 147.762 }
+
+		assert.is_true(sut:is_ok())
+		assert.is_false(sut:is_err())
 	end)
 end)
 
