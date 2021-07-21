@@ -15,13 +15,13 @@ local function MakeBaseErrorString(from, to)
 end
 
 local function AssertCastingToResultType(from, to)
-	if to.is_result != true then
+	if to.is_result ~= true then
 		error(MakeBaseErrorString(from, to) .. " Cannot convert from result to non-result type.")
 	end
 end
 
 local function AssertCastingTypeParamEqual(from, to, param_name, expected_value)
-	if to[param_name] != expected_value then
+	if to[param_name] ~= expected_value then
 		error(MakeBaseErrorString(from, to) .. " Type parameter " .. param_name .. "mismatched.")
 	end
 end
@@ -33,13 +33,13 @@ M.MakeOkayResult = terralib.memoize(function(OkayType)
 	}
 	BlessResult(OkayResult, OkayType, nil)
 
-	function OkayType.metafunctions.__cast(from, to, expr)
+	function OkayResult.metamethods.__cast(from, to, expr)
 		AssertCastingToResultType(from, to)
 		AssertCastingTypeParamEqual(from, to, "OkayType", OkayType)
 		return `[to].ok([expr].ok)
 	end
 
-	return OkayType
+	return OkayResult
 end)
 
 -- A result that can only be an error
@@ -49,9 +49,11 @@ M.MakeErrorResult = terralib.memoize(function(ErrorType)
 	}
 	BlessResult(ErrorResult, nil, ErrorType)
 
-	function ErrorResult.metafunctions.__cast(from, to, expr)
+	function ErrorResult.metamethods.__cast(from, to, expr)
+		print("ErrorResult cast")
 		AssertCastingToResultType(from, to)
 		AssertCastingTypeParamEqual(from, to, "ErrorType", ErrorType)
+		error("The cast was called")
 		return `[to].err([expr].err)
 	end
 
