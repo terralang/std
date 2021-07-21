@@ -8,7 +8,7 @@ describe("ErrorResult", function()
 
 	it("can be casted to a full Result type", terra()
 		var from: TestError = TestError { 709 }
-		var to: TestResult = [TestResult](from)
+		var to: TestResult = from -- Implicit cast
 
 		assert.is_true(to:is_err())
 		assert.equal(709, to.err)
@@ -27,7 +27,7 @@ describe("OkayResult", function()
 
 	it("can be casted to a full Result type", terra()
 		var from: TestOkay = TestOkay { 147.762 }
-		var to: TestResult = [TestResult](from)
+		var to: TestResult = from -- Implicit cast
 
 		assert.is_true(to:is_ok())
 		assert.equal(147.762, to.ok)
