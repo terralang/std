@@ -8,6 +8,20 @@ local M = {}
 local function BlessResult(ResultType, OkayType, ErrorType)
 	ResultType.is_result = true
 	ResultType.type_parameters = { OkayType = OkayType, ErrorType = ErrorType }
+
+	-- Add is_err() to the struct if it doesn't exist.
+	-- This mainly exists so the partial results can have a similar query API to the full result
+	if ResultType.methods.is_err == nil then
+		terra ResultType:is_err()
+			return [ ErrorType ~= nil ]
+		end
+	end
+
+	if ResultType.methods.is_ok == nil then
+		terra ResultType:is_ok()
+			return [ OkayType ~= nil ]
+		end
+	end
 end
 
 local function MakeBaseErrorString(from, to)
@@ -21,14 +35,14 @@ local function AssertCastingToResultType(from, to)
 end
 
 local function AssertCastingTypeParamEqual(from, to, param_name, expected_value)
-	if to[param_name] ~= expected_value then
-		error(MakeBaseErrorString(from, to) .. " Type parameter " .. param_name .. "mismatched.")
+	if to.type_parameters[param_name] ~= expected_value then
+		error(MakeBaseErrorString(from, to) .. " Type parameter " .. param_name .. " mismatched.")
 	end
 end
 
 -- A result that can only be an okay
 M.MakeOkayResult = terralib.memoize(function(OkayType)
-	local enum OkayResult {
+	local struct OkayResult {
 		ok: OkayType
 	}
 	BlessResult(OkayResult, OkayType, nil)
@@ -44,16 +58,14 @@ end)
 
 -- A result that can only be an error
 M.MakeErrorResult = terralib.memoize(function(ErrorType)
-	local enum ErrorResult {
+	local struct ErrorResult {
 		err: ErrorType
 	}
 	BlessResult(ErrorResult, nil, ErrorType)
 
 	function ErrorResult.metamethods.__cast(from, to, expr)
-		print("ErrorResult cast")
 		AssertCastingToResultType(from, to)
 		AssertCastingTypeParamEqual(from, to, "ErrorType", ErrorType)
-		error("The cast was called")
 		return `[to].err([expr].err)
 	end
 

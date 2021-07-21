@@ -7,14 +7,11 @@ describe("ErrorResult", function()
 	local TestError = R.MakeErrorResult(TestResult.type_parameters.ErrorType)
 
 	it("can be casted to a full Result type", terra()
-		var from: TestError = TestError.err(708)
-		Cio.printf("from: %d\n", from.err)
-		-- Implicit casts don't work for structs it seems
+		var from: TestError = TestError { 709 }
 		var to: TestResult = [TestResult](from)
 
-		--[[
 		assert.is_true(to:is_err())
-		assert.equal(709, to.err) ]]--
+		assert.equal(709, to.err)
 	end)
 end)
 
@@ -22,8 +19,8 @@ describe("OkayResult", function()
 	local TestOkay = R.MakeOkayResult(TestResult.type_parameters.OkayType)
 
 	it("can be casted to a full Result type", terra()
-		var from: TestOkay = TestOkay.ok(147.762)
-		var to = [TestResult](from)
+		var from: TestOkay = TestOkay { 147.762 }
+		var to: TestResult = [TestResult](from)
 
 		assert.is_true(to:is_ok())
 		assert.equal(147.762, to.ok)
@@ -39,4 +36,14 @@ describe("std.result", function()
 		var err = TestResult.err(76)
 	end)
 
+	it("can check which alternative it is", terra()
+		var okay = TestResult.ok(42.3)
+		var err = TestResult.err(76)
+
+		assert.is_true(okay:is_ok())
+		assert.is_false(okay:is_err())
+
+		assert.is_false(err:is_ok())
+		assert.is_true(err:is_err())
+	end)
 end)
