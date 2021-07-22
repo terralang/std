@@ -116,6 +116,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		buckets: &BucketType
 	}
 
+
 	-- Result types
 	local CallocResult = R.MakeResult(tuple(&opaque, &uint8, &BucketType), M.Errors.ErrorType)
 	local ProbeResult = R.MakeResult(uint, M.Errors.ErrorType)
@@ -324,6 +325,44 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	else
 		terra HashTable:insert(key: KeyType): uint
 			InsertBody(self, BucketType { key = key })
+		end
+	end
+
+	local struct Entry {
+		-- Pointer to the hash_table that owns this entry
+		hash_table: &HashTable
+		-- Hash info of the entry
+		hash_info: HashInformation
+		-- Probed index of the bucket
+		index: uint
+	}
+
+	local EntryResult = R.MakeResult(Entry, M.Errors.ErrorType)
+
+	terra HashTable:entry(key: KeyType): EntryResult
+		var hash_info, probe_index = hash_probe(key, self.metadata, self.buckets, self.capacity):unwrap()
+		return Entry { self, hash_info, probe_index }
+	end
+
+	if BucketType.IsKeyValue then
+		terra Entry:insert_or(value: ValueType): ValueType
+			if (self.hash_table.metadata[self.index] == MetadataEmpty) then
+				self.hash_table.metadata[self.index] = self.hash_info.h2
+				self.hash_table.buckets[self.index] = BucketType { self.hash_info.key, value }
+				self.hash_table.size = self.hash_table.size + 1
+			end
+
+			return self.buckets[self.index].value
+		end
+	else
+		terra Entry:insert_or(): KeyType
+			if (self.hash_table.metadata[self.index] == MetadataEmpty) then
+				self.hash_table.metadata[self.index] = self.hash_info.h2
+				self.hash_table.buckets[self.index] = BucketType { self.hash_info.key }
+				self.hash_table.size = self.hash_table.size + 1
+			end
+
+			return self.buckets[self.index].key
 		end
 	end
 
