@@ -1,5 +1,5 @@
 local R = require "std.result"
-local Cio = terralib.includec("stdio.h")
+local String = require "std.string"
 
 local TestResult = R.MakeResult(double, int)
 
@@ -42,9 +42,6 @@ describe("OkayResult", function()
 end)
 
 describe("std.result", function()
-	local TestOkay = R.MakeOkayResult(double)
-	local TestError = R.MakeErrorResult(int)
-
 	it("can be instantiated in both okay and error alternatives", terra()
 		var okay = TestResult.ok(42.3)
 		var err = TestResult.err(76)
@@ -59,5 +56,43 @@ describe("std.result", function()
 
 		assert.is_false(err:is_ok())
 		assert.is_true(err:is_err())
+	end)
+
+	it("can be mapped with a function", function()
+		local terra double_to_string(x: double): String
+			return String.Format("%d", x)
+		end
+
+		local terra map_test_function_pointer()
+			var sut = TestResult.ok(42.3)
+
+			var actual = sut:map(double_to_string)
+			var expected: String
+			expected:init("42.3")
+
+
+			assert.is_true(actual:is_ok())
+			assert.equal(expected, actual.ok)
+		end
+
+		map_test_function_pointer()
+	end)
+
+	it("can be unwrapped", function()
+		local terra unwrap_ok_same_type(): TestResult
+			var sut = TestResult.ok(42.3)
+			var x = sut:unwrap() + 1
+			
+			assert.equal(43.3, x)
+		end
+
+		local terra unwrap_err_compatabile_type(): R.MakeResult(String, int)
+			var sut = TestResult.err(10)
+			var x = sut:unwrap() + 1
+		end
+
+		unwrap_ok_same_type()
+
+		assert.equal(10, unwrap_err_compatabile_type().err)
 	end)
 end)

@@ -72,6 +72,10 @@ M.MakeErrorResult = terralib.memoize(function(ErrorType)
 	return ErrorResult
 end)
 
+M.ErrorResult = macro(function(err)
+	return `[M.MakeErrorResult(err:gettype())] {[err]}
+end)
+
 M.MakeResult = terralib.memoize(function(OkayType, ErrorType)
 	local enum Result {
 		ok: OkayType,
@@ -79,17 +83,45 @@ M.MakeResult = terralib.memoize(function(OkayType, ErrorType)
 	}
 	BlessResult(Result, OkayType, ErrorType)
 
-	Result.apply = macro(function(self, fn)
-		
+	-- Applies the function to the ok value, leaving the err value untouched
+	Result.methods.map = macro(function(self, fn)
+		-- Extracting the type from the fn quote
+		local fn_type = fn:gettype()
+	
+		if fn_type:ispointertofunction() then
+			fn_type = fn_type.type
+		end
+
+		-- Typechecking
+		if not fn_type:isfunction() then
+			error("type error: expected parameter `fn` to be a function or function pointer, got `" .. tostring(fn_type) .. "`.")
+		elseif #fn_type.parameters ~= 1 then
+			error("type error: expected function `fn` to take only one parameter, got " .. #fn_type.parameters .. ".")
+		elseif fn_type.parameters[0] == OkayType then
+			error("type error: expected function `fn` to take a parameter of type '" .. tostring(self.type_parameters.OkayType) .. ", got " .. tostring(fn_type.parameters[0]) .. ").")
+		end
+
+		local return_type = M.MakeResult(fn_type.returntype, ErrorType)
+
+		return quote
+			var this = self
+			var return_value: return_type
+			if this:is_ok() then
+				return_value = [return_type].ok([fn](this.ok))
+			else
+				return_value = [return_type].err(this.err)
+			end
+		in return_value end
 	end)
 
-	Result.unwrap = macro(function(self) 
+	-- If an Ok value, returns the Ok value, otherwise this will force the calling function to return with an ErrorResult
+	Result.methods.unwrap = macro(function(self) 
 		return quote 
-			var s = self
-			if s:is_ok() then
-				return s 
+			var this = self
+			if this:is_err() then
+				return M.ErrorResult(this.err) 
 			end 
-		in s.ok end 
+		in this.ok end 
 	end)
 
 	return Result
