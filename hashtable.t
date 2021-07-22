@@ -279,6 +279,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 			
 			self.metadata[index] = MetadataEmpty
 			CStr.memset(self.buckets + index, 0, sizeof(BucketType))
+			self.size = self.size - 1
 			
 			return RemoveResult.ok(bucket)
 		end
