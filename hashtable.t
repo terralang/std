@@ -293,7 +293,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 			var hash_info, index = result.ok
 
 			if self.metadata[index] ~= MetadataEmpty then
-				self.metadata[index] == MetadataEmpty
+				self.metadata[index] = MetadataEmpty
 				CStr.memset(self.buckets + index, 0, sizeof(BucketType))
 			end
 
@@ -340,7 +340,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 				if self.metadata[index] == MetadataEmpty then
 					return GetResult.err(M.Errors.NotFound)
 				else
-					return GetResult.ok(self.buckets[index])
+					return GetResult.ok(self.buckets[index].value)
 				end
 			else
 				return GetResult.err(result.err)
