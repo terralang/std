@@ -121,6 +121,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	local ProbeResult = R.MakeResult(uint, M.Errors.ErrorType)
 	local HashProbeResult = R.MakeResult(tuple(HashInformation, uint), M.Errors.ErrorType)
 	local InsertResult = R.MakeResult(InsertData, M.Errors.ErrorType)
+	local RemoveResult = R.MakeResult(BucketType, M.Errors.ErrorType)
 
 	-- Allocates and initalizes memory for the hashtable. The metadata array is initalized to `MetadataEmpty`. Buckets are not initialized to any value.
 	-- Returns a Result containing either a triple or an error code.
@@ -171,31 +172,20 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	-- This is a convience function for `compute_hash_information` and `linear_probe`
 	local terra hash_probe(key: KeyType, metadata_array: &uint8, buckets_array: &BucketType, capacity: uint): HashProbeResult
 		var hash_info = compute_hash_information(key, capacity)
-		var probe_result = linear_probe(hash_info, metadata_array, buckets_array, capacity)
-
-		if probe_result:is_err() then
-			return HashProbeResult.err(probe_result.err)
-		end
-
-		return HashProbeResult.ok{hash_info, probe_result.ok}
+		var probe_result = linear_probe(hash_info, metadata_array, buckets_array, capacity):unwrap()
+		return HashProbeResult.ok{hash_info, probe_result}
 	end
 
 	-- Inserts a bucket into the provided hashtable.
 	-- Returns a result containing an InsertData or an error code 
 	local terra insert_bucket(bucket: BucketType, metadata_array: &uint8, buckets_array: &BucketType, capacity: uint): InsertResult 
-		var hp_result = hash_probe(bucket.key, metadata_array, buckets_array, capacity)
-	
-		if hp_result:is_ok() then
-			var hash_info, index = hp_result.ok
-			var old_metadata = metadata_array[index]
+		var hash_info, index = hash_probe(bucket.key, metadata_array, buckets_array, capacity):unwrap()
+		var old_metadata = metadata_array[index]
 
-			metadata_array[index] = hash_info.h2
-			buckets_array[index] = bucket
+		metadata_array[index] = hash_info.h2
+		buckets_array[index] = bucket
 
-			return InsertResult.ok(InsertData {old_metadata, index, hash_info})
-		else
-			return InsertResult.err(hp_result.err)
-		end
+		return InsertResult.ok(InsertData {old_metadata, index, hash_info})
 	end
 
 	local terra find_next_power_of_two(m: uint): uint
@@ -243,13 +233,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		end
 
 		var new_capacity = find_next_power_of_two(requested_capacity) 
-		var calloc_result = table_calloc(new_capacity)
-
-		if calloc_result:is_err() then
-			return calloc_result.err
-		end
-
-		var new_opaque, new_metadata, new_buckets = calloc_result.ok 
+		var new_opaque, new_metadata, new_buckets = table_calloc(new_capacity):unwrap()
 
 		-- Iterate through the old data and rehash existing entries
 		for i = 0, self.capacity do
@@ -286,21 +270,20 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		end
 	end
 
-	terra HashTable:remove(key: KeyType): uint
-		var result = hash_probe(key, self.metadata, self.buckets, self.capacity)
+	-- Removes the item associated with the key and returns the a struct containing a key field and a possible value field.
+	terra HashTable:remove(key: KeyType): RemoveResult
+		var hash_info, index = hash_probe(key, self.metadata, self.buckets, self.capacity):unwrap()
 
-		if result:is_ok() then
-			var hash_info, index = result.ok
-
-			if self.metadata[index] ~= MetadataEmpty then
-				self.metadata[index] = MetadataEmpty
-				CStr.memset(self.buckets + index, 0, sizeof(BucketType))
-			end
-
-			return 0
-		else
-			return result.err
+		if self.metadata[index] ~= MetadataEmpty then
+			var bucket = self.buckets[index]
+			
+			self.metadata[index] = MetadataEmpty
+			CStr.memset(self.buckets + index, 0, sizeof(BucketType))
+			
+			return RemoveResult.ok(bucket)
 		end
+
+		return RemoveResult.err(M.Errors.NotFound)
 	end
 
 	local InsertBody = macro(function(self, bucket)
@@ -311,17 +294,13 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 				[self]:reserve([self].capacity + 1)
 			end
 			
-			var result = insert_bucket([bucket], [self].metadata, [self].buckets, [self].capacity)
+			var insert_data = insert_bucket([bucket], [self].metadata, [self].buckets, [self].capacity):unwrap()
 
-			if result:is_ok() then
-				if result.ok.old_metadata == MetadataEmpty then
-					self.size = self.size + 1
-				end 
+			if insert_data.old_metadata == MetadataEmpty then
+				self.size = self.size + 1
+			end 
 
-				return 0
-			else
-				return result.err
-			end
+			return 0
 		end
 	end)
 
@@ -333,17 +312,12 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		local GetResult = R.MakeResult(ValueType, M.Errors.ErrorType) 
 
 		terra HashTable:get(key: KeyType): GetResult
-			var result = hash_probe(key, self.metadata, self.buckets, self.capacity)
-			if result:is_ok() then
-				var hash_info, index = result.ok
+			var hash_info, index = hash_probe(key, self.metadata, self.buckets, self.capacity):unwrap()
 
-				if self.metadata[index] == MetadataEmpty then
-					return GetResult.err(M.Errors.NotFound)
-				else
-					return GetResult.ok(self.buckets[index].value)
-				end
+			if self.metadata[index] == MetadataEmpty then
+				return GetResult.err(M.Errors.NotFound)
 			else
-				return GetResult.err(result.err)
+				return GetResult.ok(self.buckets[index].value)
 			end
 		end
 	else
