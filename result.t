@@ -28,12 +28,6 @@ local function MakeBaseErrorString(from, to)
 	return "Invalid cast from " .. tostring(from) .. " to " .. tostring(to) .. ":"
 end
 
-local function AssertCastingToResultType(from, to)
-	if to.is_result ~= true then
-		error(MakeBaseErrorString(from, to) .. " Cannot convert from result to non-result type.")
-	end
-end
-
 local function AssertCastingTypeParamEqual(from, to, param_name, expected_value)
 	if to.type_parameters[param_name] ~= expected_value then
 		error(MakeBaseErrorString(from, to) .. " Type parameter " .. param_name .. " mismatched.")
@@ -48,9 +42,14 @@ M.MakeOkayResult = terralib.memoize(function(OkayType)
 	BlessResult(OkayResult, OkayType, nil)
 
 	function OkayResult.metamethods.__cast(from, to, expr)
-		AssertCastingToResultType(from, to)
-		AssertCastingTypeParamEqual(from, to, "OkayType", OkayType)
-		return `[to].ok([expr].ok)
+		if to.is_result == true then
+			AssertCastingTypeParamEqual(from, to, "OkayType", OkayType)
+			return `[to].ok([expr].ok)
+		elseif from.type_parameters.OkayType == to then
+			return `[expr].ok
+		else
+			error("Cast destination must be a result type of the same OkayType or a type equivalent to OkayType.")
+		end
 	end
 
 	return OkayResult
@@ -63,10 +62,19 @@ M.MakeErrorResult = terralib.memoize(function(ErrorType)
 	}
 	BlessResult(ErrorResult, nil, ErrorType)
 
+	function ErrorResult.metamethods.__typename(self)
+		return "ErrorResult[" .. tostring(self.type_parameters.ErrorType) .. "]"
+	end
+
 	function ErrorResult.metamethods.__cast(from, to, expr)
-		AssertCastingToResultType(from, to)
-		AssertCastingTypeParamEqual(from, to, "ErrorType", ErrorType)
-		return `[to].err([expr].err)
+		if to.is_result == true then
+			AssertCastingTypeParamEqual(from, to, "ErrorType", ErrorType)
+			return `[to].err([expr].err)
+		elseif from.type_parameters.ErrorType == to then 
+			return `[expr].err
+		else
+			error("Cast destination must be a result type with the same ErrorType or a type equivalent to ErrorType")
+		end
 	end
 
 	return ErrorResult
