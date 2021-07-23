@@ -83,6 +83,10 @@ local function setentry(entryname, expr, value)
 end
 
 local function typename(self)
+  if self.metamethods.N == 0 then
+    return "Zero"
+  end
+  
   if self.metamethods.grade == 0 then
     return ("Scalar<%s>"):format(tostring(self.metamethods.type))
   end
@@ -246,6 +250,15 @@ multivector = function(T, Components)
       end
     end
   end
+  terra s:mag2() : T
+    escape
+      local acc = `[T](0)
+      for i = 0,N-1 do
+        acc = `[acc] + self.v[i]*self.v[i]
+      end
+      emit(quote return acc end)
+    end
+  end
 
   terra s:normalize() : s
     var magnitude = self:magnitude()
@@ -258,6 +271,30 @@ multivector = function(T, Components)
     return normalized
   end
 
+  local function component_op(op, U)
+    return terra (self : &s, y : U) : s
+      var x : s = @self
+      for i = 0,N-1 do
+        escape
+          if U == s then
+            emit(quote x.v[i] = operator(op, x.v[i], y.v[i]) end)
+          else
+            emit(quote x.v[i] = operator(op, x.v[i], y) end)
+          end
+        end
+      end
+      return x
+    end
+  end
+
+  local ops = { "sub","add","mul","div" }
+  for i, op in ipairs(ops) do
+    s.methods["component_" .. op] = terralib.overloadedfunction("component_" .. op, {
+      component_op("__" .. op, s),
+      component_op("__" .. op, T)
+      }
+    )
+  end
 
   -- The norm of an arbitrary multivector is itself times it's own conjugate, but we only have an efficient implementation up to 3 dimensions
   s.methods.norm = macro(function(self)
@@ -434,7 +471,7 @@ multivector = function(T, Components)
     for i,v in ipairs(to.metamethods.components) do
       local index = from.metamethods.basis[v]
       if not index then
-        table.insert(args, `0)
+        table.insert(args, `[T](0))
       else
         table.insert(args, `[exp].v[ [index] ])
       end
@@ -478,6 +515,7 @@ end
 function GA(T, N)
   local ga = {}
   terra ga.scalar(a : T) : multivector(T, {0}) return a end
+  ga.zero = constant(`[multivector(T, {})]{})
 
   local kvectors = {}
   for i = 0,(2^N)-1 do
@@ -525,6 +563,7 @@ function GA(T, N)
   end)
   
   -- pretty name aliases
+  ga.scalar_t = T
   if ga.vector1 ~= nil then ga.vector = ga.vector1; ga.vector_t = ga.vector1_t end
   if ga.vector2 ~= nil then ga.bivector = ga.vector2; ga.bivector_t = ga.vector2_t end
   if ga.vector3 ~= nil then ga.trivector = ga.vector3; ga.trivector_t = ga.vector3_t end
