@@ -116,6 +116,9 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		buckets: &BucketType
 	}
 
+	function HashTable.metamethods.__typename(self)
+		return "HashTable[" .. tostring(KeyType) .. (ValueType ~= nil and ", " .. tostring(ValueType) or "") .. "]"
+	end
 
 	-- Result types
 	local CallocResult = R.MakeResult(tuple(&opaque, &uint8, &BucketType), M.Errors.ErrorType)
