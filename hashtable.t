@@ -337,6 +337,11 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		index: uint
 	}
 
+	-- Creating a custom typename that shows which HashTable this Entry is bound too
+	function Entry.metamethods.__typename(self)
+		return "Entry-" .. tostring(HashTable)
+	end
+
 	local EntryResult = R.MakeResult(Entry, M.Errors.ErrorType)
 
 	terra HashTable:entry(key: KeyType): EntryResult
