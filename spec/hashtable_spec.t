@@ -105,9 +105,9 @@ describe("HashTable with values", function()
 		hash_map:insert("Super Dream World", "Kobaryo")
 		hash_map:insert("Does anyone actually", "read these things? lol")
 		hash_map:insert("I feel like tests", "are vastly underappreciated in software engineering.")
-		hash_map:insert("I don't have a choice", "I have to write extensive tests to save me from myself.")
-		hash_map:insert("The only way I can catch", "silly logic and syntax mistakes are with tests.")
-		hash_map:insert("they say that everyone makes", "these mistakes but idk.")
+		hash_map:insert("a", "b")
+		hash_map:insert("c", "d")
+		hash_map:insert("e", "f")
 
 		assert.equal(6, hash_map.size)
 
@@ -123,5 +123,16 @@ describe("HashTable with values", function()
 		assert.equal(HT.Errors.NotFound, remove_result.err)
 
 		hash_map:destruct()
+	end)
+
+	it("should create Entry objects for items that exist", terra()
+		var hash_map: StringHashMap
+		hash_map:init()
+		hash_map:insert("shark girls", "are good")
+
+		var actual = hash_map:entry("shark girls")
+		assert.is_false(actual:is_empty())
+		assert.equal("shark girls", actual:key())
+		assert.equal("are good", actual:value())
 	end)
 end)
