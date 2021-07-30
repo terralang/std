@@ -130,9 +130,54 @@ describe("HashTable with values", function()
 		hash_map:init()
 		hash_map:insert("shark girls", "are good")
 
-		var actual = hash_map:entry("shark girls")
+		var actual = hash_map:entry("shark girls").ok
 		assert.is_false(actual:is_empty())
 		assert.equal("shark girls", actual:key())
-		assert.equal("are good", actual:value())
+		assert.equal("are good", actual:value().ok)
+
+		hash_map:destruct()
+	end)
+
+	it("should create Entry objects for items that don't exist", terra()
+		var hash_map: StringHashMap
+		hash_map:init()
+
+		var actual = hash_map:entry("shark girls").ok
+		assert.is_true(actual:is_empty())
+
+		hash_map:destruct()
+	end)
+end)
+
+describe("Entry on HashMap", function()
+	local StringHashMap = HT.HashTable(rawstring, rawstring)
+
+	it("should insert a value if the value doesn't exist", terra()
+		var hash_map: StringHashMap
+		hash_map:init()
+
+		var sut = hash_map:entry("dark cat").ok
+		assert.is_true(sut:is_empty())
+		assert.equal("crazy milk", sut:or_insert("crazy milk"))
+		
+		assert.is_false(sut:is_empty())
+		assert.is_true(hash_map:has("dark cat"))
+		assert.equal("crazy milk", hash_map:get("dark cat").ok)
+
+		hash_map:destruct()
+	end)
+
+	it("should return the existing value if the value exists", terra()
+		var hash_map: StringHashMap
+		hash_map:init()
+		hash_map:insert("Porter Robinson", "Look at the Sky")
+		
+		var sut = hash_map:entry("Porter Robinson").ok
+		var actual = sut:or_insert("Musician")
+
+		assert.equal("Look at the Sky", actual)
+		assert.equal("Look at the Sky", hash_map:get("Porter Robinson").ok)
+
+		hash_map:destruct()
 	end)
 end)
