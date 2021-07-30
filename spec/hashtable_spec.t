@@ -3,7 +3,7 @@ local O = require 'std.object'
 
 local Cio = terralib.includec("stdio.h")
 
-describe("Hashtable without values", function()
+describe("HashTable without values", function()
 	local StringHashSet = HT.HashTable(rawstring)
 
 	it("should insert and check the existence of values", terra()
@@ -56,9 +56,31 @@ describe("Hashtable without values", function()
 
 		hash_set:destruct()
 	end)
+
+	it("should create Entry objects for items that exist", terra()
+		var hash_set: StringHashSet
+		hash_set:init()
+		hash_set:insert("sharks")
+
+		var actual = hash_set.entry("sharks")
+		assert.is_false(actual.is_empty())
+		assert.equal("sharks", hash_set.key())
+
+		hash_set:destruct()
+	end)
+
+	it("should create Entry objects for items that don't exist", terra()
+		var hash_set: StringHashSet
+		hash_set:init()
+
+		var actual = hash_set.entry("shark")
+		assert.is_true(actual.is_empty())
+
+		hash_set:destruct()
+	end)
 end)
 
-describe("Implementation.DenseHashTable HashMap", function()
+describe("HashTable with values", function()
 	local StringHashMap = HT.HashTable(rawstring, rawstring)
 
 	it("should insert and check the existence of values", terra()
