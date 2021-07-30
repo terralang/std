@@ -349,7 +349,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 
 	terra HashTable:entry(key: KeyType): EntryResult
 		var hash_info, probe_index = hash_probe(key, self.metadata, self.buckets, self.capacity):unwrap()
-		return Entry { self, hash_info, probe_index }
+		return EntryResult.ok(Entry { self, hash_info, probe_index })
 	end
 
 	terra Entry:is_empty(): bool
@@ -359,7 +359,6 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	terra Entry:key(): KeyType
 		return self.hash_info.key
 	end
-
 
 	if BucketType.IsKeyValue then
 		local ValueResult = R.MakeResult(ValueType, M.Errors.ErrorType)
@@ -371,12 +370,15 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 				self.hash_table.size = self.hash_table.size + 1
 			end
 
-			return self.buckets[self.index].value
+			return self.hash_table.buckets[self.index].value
 		end
 
 		-- TODO: This should be an Option when those exist. Result will work for now.
 		terra Entry:value(): ValueResult
-			return self:is_empty() and ValueResult.err(M.Errors.NotFound) or ValueResult.ok(self.hash_table.buckets[self.index])
+			if self:is_empty() then
+				return ValueResult.err(M.Errors.NotFound)
+			end
+			return ValueResult.ok(self.hash_table.buckets[self.index].value)
 		end
 	else
 		terra Entry:or_insert(): KeyType
@@ -386,7 +388,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 				self.hash_table.size = self.hash_table.size + 1
 			end
 
-			return self.buckets[self.index].key
+			return self.hash_table.buckets[self.index].key
 		end
 	end
 

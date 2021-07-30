@@ -62,9 +62,9 @@ describe("HashTable without values", function()
 		hash_set:init()
 		hash_set:insert("sharks")
 
-		var actual = hash_set.entry("sharks")
-		assert.is_false(actual.is_empty())
-		assert.equal("sharks", hash_set.key())
+		var actual = hash_set:entry("sharks").ok
+		assert.is_false(actual:is_empty())
+		assert.equal("sharks", actual:key())
 
 		hash_set:destruct()
 	end)
@@ -73,8 +73,8 @@ describe("HashTable without values", function()
 		var hash_set: StringHashSet
 		hash_set:init()
 
-		var actual = hash_set.entry("shark")
-		assert.is_true(actual.is_empty())
+		var actual = hash_set:entry("shark").ok
+		assert.is_true(actual:is_empty())
 
 		hash_set:destruct()
 	end)
