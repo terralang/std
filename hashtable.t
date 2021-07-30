@@ -344,9 +344,13 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		return Entry { self, hash_info, probe_index }
 	end
 
+	terra Entry:is_empty(): bool
+		return self.hash_table.metadata[self.index] == MetadataEmpty
+	end
+
 	if BucketType.IsKeyValue then
-		terra Entry:insert_or(value: ValueType): ValueType
-			if (self.hash_table.metadata[self.index] == MetadataEmpty) then
+		terra Entry:or_insert(value: ValueType): ValueType
+			if (self:is_empty()) then
 				self.hash_table.metadata[self.index] = self.hash_info.h2
 				self.hash_table.buckets[self.index] = BucketType { self.hash_info.key, value }
 				self.hash_table.size = self.hash_table.size + 1
@@ -355,8 +359,8 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 			return self.buckets[self.index].value
 		end
 	else
-		terra Entry:insert_or(): KeyType
-			if (self.hash_table.metadata[self.index] == MetadataEmpty) then
+		terra Entry:or_insert(): KeyType
+			if (self:is_empty()) then
 				self.hash_table.metadata[self.index] = self.hash_info.h2
 				self.hash_table.buckets[self.index] = BucketType { self.hash_info.key }
 				self.hash_table.size = self.hash_table.size + 1
