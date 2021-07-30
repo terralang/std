@@ -1,4 +1,4 @@
-
+local ondemand = require 'meta.ondemand'
 
 local M = {}
 
@@ -84,10 +84,11 @@ local function build_enum(tree, env)
   enum.enum_values = {}
   for i, v in ipairs(alts) do
     enum.enum_values[v.name] = i-1
-    enum.methods["is_"..v.name] = terra(self: enum) return self.alt == [i - 1] end
+    --use ondemand to delay method typechecking to allow metainformation to be added prior to finalization.
+    enum.methods["is_"..v.name] = ondemand(function() return terra(self: enum) return self.alt == [i - 1] end end)
     local argsym = symbol(v.type)
     -- terralib.printraw(enum)
-    enum.methods[v.name] = terra([argsym]) return [enum]{alt = [i - 1], [v.name] = [argsym]} end
+    enum.methods[v.name] = ondemand(function() return terra([argsym]) return [enum]{alt = [i - 1], [v.name] = [argsym]} end end)
   end
   enum = tree.annots:fold(enum, function(enum, annot) return annot(enum) end)
 

@@ -24,4 +24,28 @@ M.FromSlice = terralib.memoize(function(T)
   return s
 end)
 
+M.Tuple = function(self,body)
+    return quote
+        escape
+            for i=0,#self:gettype().entries - 1 do
+              emit(body(`self.["_"..i]))
+            end
+        end
+    end
+  end
+  
+do
+    local function iter(invar, state)
+        if state < invar[2] then
+            return state + 1, invar[1][state+1]
+        else
+            return nil, nil
+        end
+    end
+
+    function M.FromArgs(...)
+        return iter, {{...}, select("#", ...)}, 0
+    end
+end
+
 return M
