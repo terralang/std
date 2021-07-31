@@ -204,6 +204,12 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		return m
 	end
 
+	-- Checks to see if the provided capacity and size indicate that the table needs to resize
+	-- Implemented as a function so that it can optimized in the future
+	local terra is_at_capacity(capacity: uint, size: uint): bool
+		return capacity == size
+	end
+
 	terra HashTable:init()
 		var initial_capacity = GroupLength
 		var calloc_result = table_calloc(initial_capacity)
@@ -293,13 +299,14 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 
 	local InsertBody = macro(function(self, bucket)
 		return quote
-			if [self].size == [self].capacity then
+			var this = [self]
+			if is_at_capacity(this.capacity, this.size) then
 				-- Reserve computes the next power of two, so this will double capacity.
 				-- passing in [self].capacity * 2 will quadruple capacity instead
-				[self]:reserve([self].capacity + 1)
+				this:reserve(this.capacity + 1)
 			end
 			
-			var insert_data = insert_bucket([bucket], [self].metadata, [self].buckets, [self].capacity):unwrap()
+			var insert_data = insert_bucket([bucket], this.metadata, this.buckets, this.capacity):unwrap()
 
 			if insert_data.old_metadata == MetadataEmpty then
 				self.size = self.size + 1
@@ -348,6 +355,10 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	local EntryResult = R.MakeResult(Entry, M.Errors.ErrorType)
 
 	terra HashTable:entry(key: KeyType): EntryResult
+		if is_at_capacity(self.capacity, self.size) then
+			self:reserve(self.capacity + 1)
+		end
+
 		var hash_info, probe_index = hash_probe(key, self.metadata, self.buckets, self.capacity):unwrap()
 		return EntryResult.ok(Entry { self, hash_info, probe_index })
 	end
