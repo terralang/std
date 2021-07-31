@@ -1,5 +1,6 @@
 local HT = require 'std.hashtable'
 local O = require 'std.object'
+local A = require 'std.alloc'
 
 local Cio = terralib.includec("stdio.h")
 
@@ -19,7 +20,6 @@ describe("HashTable without values", function()
 		assert.equal(2, hash_set.size)
 	end)
 
-	
 	it("should resize its capacity without changing items", terra()
 		var hash_set: StringHashSet
 		hash_set:init()
@@ -28,7 +28,6 @@ describe("HashTable without values", function()
 		hash_set:insert("and the")
 		hash_set:insert("things that")
 		hash_set:insert("bind us")
-
 
 		assert.equal(0, hash_set:reserve(31))
 		assert.equal(4, hash_set.size)

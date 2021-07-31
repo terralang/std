@@ -120,18 +120,6 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		return "HashTable[" .. tostring(KeyType) .. (ValueType ~= nil and ", " .. tostring(ValueType) or "") .. "]"
 	end
 
-	function HashTable.metamethods.__for(self, body)
-		return quote
-			var this = self
-			for i = 0, this.capacity do
-				if this.metadata[i] ~= MetadataEmpty then
-					var bucket = this.buckets[i]
-					[body(bucket)]
-				end
-			end
-		end
-	end
-
 	-- Result types
 	local CallocResult = R.MakeResult(tuple(&opaque, &uint8, &BucketType), M.Errors.ErrorType)
 	local ProbeResult = R.MakeResult(uint, M.Errors.ErrorType)
