@@ -36,26 +36,46 @@ terra M.hash_djb2(data: &int8, size: uint): uint
 end
 
 function M.CreateDefaultHashFunction(KeyType)
-	if KeyType == rawstring then
+	if KeyType:isprimitive() then
+		local terra primitive_hash(prim: KeyType)
+			return M.hash_djb2(&prim, sizeof(KeyType))
+		end
+		return primitive_hash
+	elseif KeyType == rawstring then
 		local terra default_string_hash(str: KeyType)
 			return M.hash_djb2(str, CStr.strlen(str))
 		end
 		return default_string_hash
-	-- TODO: Add more cases here
-	else
-		local terra naive_hash(obj: KeyType)
-			return M.hash_djb2(obj, sizeof(obj))
+	elseif KeyType:isstruct() and KeyType.methods.hash ~= nil then
+		local hash_fn_type = KeyType.methods.hash:gettype()
+		if #hash_fn_type.parameters >= 1 then
+			error("Expected " .. tostring(KeyType) .. ":hash to take only one parameter.")
+		elseif hash_fn_type.returntype ~= uint then
+			error("Expected " .. tostring(KeyType) .. ":hash to return a uint.")
 		end
-		return naive_hash
+
+		local terra call_object_hash() 
+			return KeyType:hash() 
+		end
+		return call_object_hash()
+	else
+		error("Expected KeyType to be a primitive, a string, or an object implementing hash().")
 	end
 end
 
 function M.CreateDefaultEqualityFunction(KeyType)
-	-- TODO: Need more cases here too
-	local terra naive_equal_function(k1: KeyType, k2: KeyType): bool
-		return k1 == k2
+	if KeyType == rawstring then
+		local terra string_equal_fn(k1: rawstring, k2: rawstring): bool
+			return CStr.strcmp(k1, k2) == 0
+		end
+		return string_equal_fn
+	else
+		-- In most cases this should be enough, user-defined objects can implement the __eq metamethods to override equality checking.
+		local terra naive_equal_function(k1: KeyType, k2: KeyType): bool
+			return k1 == k2
+		end
+		return naive_equal_function
 	end
-	return naive_equal_function
 end
 
 -- Using error codes instead of strings because it's easier to define the nature of the error since we don't have standardized error types.
