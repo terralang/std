@@ -149,7 +149,23 @@ describe("HashTable with values", function()
 	end)
 end)
 
-describe("Entry on HashMap", function()
+describe("Entry on HashTable without value", function()
+	local StringHashSet = HT.HashTable(rawstring)
+
+	it("should insert the value if it doesn't exist", terra()
+		var hash_set: StringHashSet
+		hash_set:init()
+
+		var sut = hash_set:entry("sharks").ok
+		assert.is_true(sut:is_empty())
+		assert.equal("sharks", sut:or_insert())
+		assert.is_true(hash_set:has("sharks"))
+
+		hash_set:destruct()
+	end)
+end)
+
+describe("Entry on HashTable with value", function()
 	local StringHashMap = HT.HashTable(rawstring, rawstring)
 
 	it("should insert a value if the value doesn't exist", terra()
