@@ -98,6 +98,25 @@ describe("HashTable with values", function()
 		assert.equal(4, hash_map.size)
 	end)
 
+	it("should resize its capacity without changing items", terra()
+		var hash_map: StringHashMap
+		hash_map:init()
+
+		hash_map:insert("1", "Drink Water")
+		hash_map:insert("2", "Eat food")
+		hash_map:insert("3", "Breathe air")
+
+		assert.equal(3, hash_map.size)
+		assert.equal(0, hash_map:reserve(31))
+		assert.is_true(hash_map.capacity >= 31)
+
+		assert.is_true(hash_map:has("1"))
+		assert.is_true(hash_map:has("2"))
+		assert.is_true(hash_map:has("3"))
+
+		hash_map:destruct()
+	end)
+
 	it("should be able to remove items by keys", terra()
 		var hash_map: StringHashMap
 		hash_map:init()
