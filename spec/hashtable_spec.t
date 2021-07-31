@@ -46,7 +46,11 @@ describe("HashTable without values", function()
 
 		-- Should remove the item and return it.
 		assert.equal(3, hash_set.size)
-		assert.equal("I'm filled", hash_set:remove("I'm filled").ok.key)
+
+		var rm_result = hash_set:remove("I'm filled")
+		assert.is_true(rm_result:is_ok())
+		assert.equal("I'm filled", rm_result.ok.key)
+
 		assert.equal(2, hash_set.size)
 
 		-- Should return an error
@@ -54,6 +58,31 @@ describe("HashTable without values", function()
 		assert.equal(2, hash_set.size)
 
 		hash_set:destruct()
+	end)
+
+	it("should properly keep track of hash-collided entries", function()
+		local terra bad_hash_function(key: rawstring): uint
+			return 1
+		end
+
+		local BadStringHashMap = HT.HashTable(rawstring, nil, bad_hash_function) 
+
+		local terra test()
+			var hash_map: BadStringHashMap
+			hash_map:init()
+
+			hash_map:insert("1")
+			hash_map:insert("2")
+			hash_map:insert("3")
+		
+			assert.is_true(hash_map:remove("1"):is_ok())
+			assert.is_true(hash_map:remove("2"):is_ok())
+			assert.is_true(hash_map:remove("3"):is_ok())
+
+			hash_map:destruct()
+		end
+
+		test()
 	end)
 
 	it("should create Entry objects for items that exist", terra()
@@ -141,6 +170,31 @@ describe("HashTable with values", function()
 		assert.equal(HT.Errors.NotFound, remove_result.err)
 
 		hash_map:destruct()
+	end)
+
+	it("should properly keep track of hash-collided entries", function()
+		local terra bad_hash_function(key: rawstring): uint
+			return 1
+		end
+
+		local BadStringHashMap = HT.HashTable(rawstring, rawstring, bad_hash_function) 
+
+		local terra test()
+			var hash_map: BadStringHashMap
+			hash_map:init()
+
+			hash_map:insert("1", "ttt")
+			hash_map:insert("2", "ddd")
+			hash_map:insert("3", "fff")
+
+			assert.is_true(hash_map:remove("1"):is_ok())
+			assert.is_true(hash_map:remove("2"):is_ok())
+			assert.is_true(hash_map:remove("3"):is_ok())
+
+			hash_map:destruct()
+		end
+
+		test()
 	end)
 
 	it("should create Entry objects for items that exist", terra()
