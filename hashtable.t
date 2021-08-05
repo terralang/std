@@ -101,6 +101,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	-- Constants
 	local MetadataHashBitmap = constant(uint8, 127) -- 0b01111111
 	local MetadataEmpty = constant(uint8, 128) -- 0b10000000
+	local MetadataDeleted = constant(uint8, 254) -- 0b11111110
 	local GroupLength = constant(uint, 16)
 
 	-- Determine if this hashtable should operate as a hash set or a hash map
@@ -180,16 +181,42 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	-- If the key exists in the hashtable, then the index returned refers to the bucket containing that key. 
 	-- If the key does not exist in the hashtable, then the index returned refers to an empty bucket where the key would be stored.
 	local terra linear_probe(hash: HashInformation, metadata_array: &uint8, buckets_array: &BucketType, capacity: uint): ProbeResult
+		-- Stores result in the case a deleted entry is found
+		var found_deleted: bool = false
+		var deleted_index: uint = 0
+
+		-- Stores the result of a normal probe for empty or a match
+		var found_empty: bool = false
+		var index_empty_or_exists: uint = 0
+
 		for virtual_index = hash.initial_bucket_index, capacity + hash.initial_bucket_index do
-			var index = virtual_index and (capacity -1)
+			var index = virtual_index and (capacity - 1)
 			var metadata = metadata_array[index]
 
-			if metadata == MetadataEmpty or (metadata == hash.h2 and [EqFn](hash.key, buckets_array[index].key)) then
-				return ProbeResult.ok(index)
+			if metadata == MetadataDeleted then
+				found_deleted = true
+				deleted_index = index
+			elseif metadata == MetadataEmpty then
+				found_empty = true
+				index_empty_or_exists = index
+				break
+			elseif metadata == hash.h2 and [EqFn](hash.key, buckets_array[index].key) then
+				index_empty_or_exists = index
+				break
 			end
 		end
 
-		return ProbeResult.err(M.Errors.AtCapacity)
+		if not found_deleted and not found_empty then
+			-- If we didn't find a deleted entry nor an empty entry, then table is at capacity and we return an error.
+			return ProbeResult.err(M.Errors.AtCapacity)
+		elseif found_deleted and found_empty then
+			-- If we found a deleted entry and didn't find an match, then return the deleted entry.
+			return ProbeResult.ok(deleted_index)
+		else
+			-- If we found a deleted entry and a match, return the the match.
+			-- If didn't find a deleted entry but found an empty slot, then return the empty slot.
+			return ProbeResult.ok(index_empty_or_exists)
+		end
 	end 
 
 	-- Computes the hash of key which is then used to probe for the index.
@@ -307,7 +334,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		if self.metadata[index] ~= MetadataEmpty then
 			var bucket = self.buckets[index]
 			
-			self.metadata[index] = MetadataEmpty
+			self.metadata[index] = MetadataDeleted
 			CStr.memset(self.buckets + index, 0, sizeof(BucketType))
 			self.size = self.size - 1
 			
@@ -384,7 +411,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	end
 
 	terra Entry:is_empty(): bool
-		return self.hash_table.metadata[self.index] == MetadataEmpty
+		return self.hash_table.metadata[self.index] == MetadataEmpty or self.hash_table.metadata[self.index] == MetadataDeleted
 	end
 
 	terra Entry:key(): KeyType
@@ -440,7 +467,9 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 			Cstdio.printf("[%u]\tMetadata: %p = 0x%02X\tBucket: %p = ", i, self.metadata + i, self.metadata[i], self.buckets + i)
 
 			if self.metadata[i] == 128 then
-				Cstdio.printf("Empty\n", self.buckets + i)
+				Cstdio.printf("Empty\n")
+			elseif self.metadata[i] == MetadataDeleted then
+				Cstdio.printf("Deleted\n")
 			elseif self.buckets + i == nil then
 				Cstdio.printf("NULLPTR\n")
 			else

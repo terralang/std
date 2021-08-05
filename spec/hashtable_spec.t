@@ -15,6 +15,8 @@ describe("HashTable without values", function()
 		assert.equal(0, hash_set:insert(expected._0))
 		assert.equal(0, hash_set:insert(expected._1))
 
+		hash_set:debug_full_repr()
+
 		assert.is_true(hash_set:has(expected._0))
 		assert.is_true(hash_set:has(expected._1))
 		assert.equal(2, hash_set.size)
