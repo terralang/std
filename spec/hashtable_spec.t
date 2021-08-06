@@ -15,8 +15,6 @@ describe("HashTable without values", function()
 		assert.equal(0, hash_set:insert(expected._0))
 		assert.equal(0, hash_set:insert(expected._1))
 
-		hash_set:debug_full_repr()
-
 		assert.is_true(hash_set:has(expected._0))
 		assert.is_true(hash_set:has(expected._1))
 		assert.equal(2, hash_set.size)
@@ -67,21 +65,21 @@ describe("HashTable without values", function()
 			return 1
 		end
 
-		local BadStringHashMap = HT.HashTable(rawstring, nil, bad_hash_function) 
+		local BadStringHashSet = HT.HashTable(rawstring, nil, bad_hash_function) 
 
 		local terra test()
-			var hash_map: BadStringHashMap
-			hash_map:init()
+			var hash_set: BadStringHashSet
+			hash_set:init()
 
-			hash_map:insert("1")
-			hash_map:insert("2")
-			hash_map:insert("3")
+			hash_set:insert("1")
+			hash_set:insert("2")
+			hash_set:insert("3")
 		
-			assert.is_true(hash_map:remove("1"):is_ok())
-			assert.is_true(hash_map:remove("2"):is_ok())
-			assert.is_true(hash_map:remove("3"):is_ok())
+			assert.is_true(hash_set:remove("1"):is_ok())
+			assert.is_true(hash_set:remove("2"):is_ok())
+			assert.is_true(hash_set:remove("3"):is_ok())
 
-			hash_map:destruct()
+			hash_set:destruct()
 		end
 
 		test()
