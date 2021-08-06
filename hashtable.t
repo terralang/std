@@ -179,6 +179,11 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		}
 	end
 
+	-- Returns true if the metadata holds a hash (not Empty or Deleted). False otherwise.
+	local terra metadata_holds_hash(metadata: uint8): bool 
+		return metadata ~= MetadataEmpty and metadata ~= MetadataDeleted	
+	end
+
 	-- Probes the hash_table for the bucket that would contain the key. Returns a result containing either an index or an error code.
 	-- If the key exists in the hashtable, then the index returned refers to the bucket containing that key. 
 	-- If the key does not exist in the hashtable, then the index returned refers to an empty bucket where the key would be stored.
@@ -304,7 +309,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 
 		-- Iterate through the old data and rehash existing entries
 		for i = 0, self.capacity do
-			if self.metadata[i] ~= MetadataEmpty then
+			if metadata_holds_hash(self.metadata[i]) then
 				var bucket = self.buckets[i]
 				var insert_result = insert_bucket(bucket, new_metadata, new_buckets, new_capacity)
 
@@ -330,7 +335,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	terra HashTable:has(key: KeyType): bool
 		var result = hash_probe(key, self.metadata, self.buckets, self.capacity) 
 
-		if result:is_ok() and self.metadata[result.ok._1] ~= MetadataEmpty then
+		if result:is_ok() and metadata_holds_hash(self.metadata[result.ok._1]) then
 			return true
 		else
 			return false
@@ -341,7 +346,7 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 	terra HashTable:remove(key: KeyType): RemoveResult
 		var hash_info, index = hash_probe(key, self.metadata, self.buckets, self.capacity):unwrap()
 
-		if self.metadata[index] ~= MetadataEmpty then
+		if metadata_holds_hash(self.metadata[index]) then
 			var bucket = self.buckets[index]
 			
 			self.metadata[index] = MetadataDeleted
@@ -383,10 +388,10 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		terra HashTable:get(key: KeyType): GetResult
 			var hash_info, index = hash_probe(key, self.metadata, self.buckets, self.capacity):unwrap()
 
-			if self.metadata[index] == MetadataEmpty then
-				return GetResult.err(M.Errors.NotFound)
-			else
+			if metadata_holds_hash(self.metadata[index]) then
 				return GetResult.ok(self.buckets[index].value)
+			else
+				return GetResult.err(M.Errors.NotFound)
 			end
 		end
 	else
@@ -394,6 +399,8 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 			InsertBody(self, BucketType { key = key })
 		end
 	end
+
+	-- Entry API
 
 	local struct Entry {
 		-- Pointer to the hash_table that owns this entry
