@@ -199,6 +199,11 @@ describe("HashTable with values", function()
 		assert.equal("Super Dream World", remove_result.ok.key)
 		assert.equal("Kobaryo", remove_result.ok.value)
 		assert.is_false(hash_map:has("Super Dream World"))
+		
+		-- Make sure that :get returns a not found error on a deleted entry
+		var get_result = hash_map:get("Super Dream World")
+		assert.is_true(get_result:is_err())
+		assert.equal(HT.Errors.NotFound, get_result.err)
 
 		remove_result = hash_map:remove("404 not found")
 		assert.is_true(remove_result:is_err())
