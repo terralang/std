@@ -88,9 +88,14 @@ describe("HashTable without values", function()
 		hash_set:insert("City Lights")
 
 		hash_set:remove("Broken Arrows")
+		hash_set:remove("Somewhere in Stockholm")
+		hash_set:remove("City Lights")
+
 		hash_set:reserve(31)
 
-		hash_set:debug_full_repr()
+		for i = 0, hash_set.capacity do
+			assert.is_true(hash_set.metadata[i] == 128)
+		end
 
 		hash_set:destruct()
 	end)
