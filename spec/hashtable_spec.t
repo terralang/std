@@ -61,6 +61,24 @@ describe("HashTable without values", function()
 		hash_set:destruct()
 	end)
 
+	it("should not allow a double-remove", terra()
+		var hash_set: StringHashSet
+		hash_set:init()
+
+		hash_set:insert("1")
+		hash_set:insert("2")
+		hash_set:insert("3")
+
+		var first_removal = hash_set:remove("2")
+		assert.is_true(first_removal:is_ok())
+
+		var second_removal = hash_set:remove("2")
+		assert.is_true(second_removal:is_err())
+		assert.equal(HT.Errors.NotFound, second_removal.err)
+
+		hash_set:destruct()
+	end)
+
 	it("should clean the table when rehashing", terra()
 		var hash_set: StringHashSet
 		hash_set:init()
