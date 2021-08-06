@@ -88,7 +88,9 @@ M.Errors = {
 	-- One of the values passed as an argument was incorrect
 	ValueError = constant(uint, 3),
 	-- The key was not found
-	NotFound = constant(uint, 4)
+	NotFound = constant(uint, 4),
+	-- Something weird happened in the probing function
+	ProbingError = constant(uint, 5)
 }
 
 function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
@@ -185,9 +187,12 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 		var found_deleted: bool = false
 		var deleted_index: uint = 0
 
-		-- Stores the result of a normal probe for empty or a match
 		var found_empty: bool = false
-		var index_empty_or_exists: uint = 0
+		var empty_index: uint = 0
+
+		-- Stores the result of a match
+		var found_match: bool = false
+		var match_index: uint = 0
 
 		for virtual_index = hash.initial_bucket_index, capacity + hash.initial_bucket_index do
 			var index = virtual_index and (capacity - 1)
@@ -198,24 +203,29 @@ function M.HashTable(KeyType, ValueType, HashFn, EqFn, Options, Alloc)
 				deleted_index = index
 			elseif metadata == MetadataEmpty then
 				found_empty = true
-				index_empty_or_exists = index
+				empty_index = index
 				break
 			elseif metadata == hash.h2 and [EqFn](hash.key, buckets_array[index].key) then
-				index_empty_or_exists = index
+				found_match = true
+				match_index = index
 				break
 			end
 		end
 
-		if not found_deleted and not found_empty then
-			-- If we didn't find a deleted entry nor an empty entry, then table is at capacity and we return an error.
+		if not found_deleted and not found_empty and not found_match then
+			-- Table is full and the key does not exist.	
 			return ProbeResult.err(M.Errors.AtCapacity)
-		elseif found_deleted and found_empty then
-			-- If we found a deleted entry and didn't find an match, then return the deleted entry.
+		elseif found_empty and found_match then
+			-- found_empty and found_match can never both be true. If this is the case then something is terribly wrong.
+			return ProbeResult.err(M.Errors.ProbingError)
+		elseif found_match then
+			-- If a found_match is true then it's either impossible or a match was found. The previous branch ruled out the impossible scenario and the match takes priority.
+			return ProbeResult.ok(match_index)
+		elseif found_deleted then
+			-- found_match is false, so either found_deleted or found_empty is true (because of the first branch). deleted entries take priority over empty ones
 			return ProbeResult.ok(deleted_index)
 		else
-			-- If we found a deleted entry and a match, return the the match.
-			-- If didn't find a deleted entry but found an empty slot, then return the empty slot.
-			return ProbeResult.ok(index_empty_or_exists)
+			return ProbeResult.ok(empty_index)
 		end
 	end 
 
