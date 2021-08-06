@@ -61,6 +61,22 @@ describe("HashTable without values", function()
 		hash_set:destruct()
 	end)
 
+	it("should clean the table when rehashing", terra()
+		var hash_set: StringHashSet
+		hash_set:init()
+
+		hash_set:insert("Somewhere in Stockholm")
+		hash_set:insert("Broken Arrows")
+		hash_set:insert("City Lights")
+
+		hash_set:remove("Broken Arrows")
+		hash_set:reserve(31)
+
+		hash_set:debug_full_repr()
+
+		hash_set:destruct()
+	end)
+
 	it("should properly keep track of hash-collided entries", function()
 		local terra bad_hash_function(key: rawstring): uint
 			return 1
