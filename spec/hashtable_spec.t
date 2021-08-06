@@ -48,10 +48,11 @@ describe("HashTable without values", function()
 		assert.equal(3, hash_set.size)
 
 		var rm_result = hash_set:remove("I'm filled")
-		assert.is_true(rm_result:is_ok())
-		assert.equal("I'm filled", rm_result.ok.key)
+		assert.is_true(rm_result:is_ok()) -- Removal should return an ok with the removed object
+		assert.equal("I'm filled", rm_result.ok.key) -- Returned object should be the correct one
 
-		assert.equal(2, hash_set.size)
+		assert.equal(2, hash_set.size) -- Size should decrease by one
+		assert.is_false(hash_set:has("I'm filled")) -- :has() should not report the object as existing
 
 		-- Should return an error
 		assert.equal(HT.Errors.NotFound, hash_set:remove("doesn't exist").err)
@@ -163,6 +164,7 @@ describe("HashTable with values", function()
 		assert.equal(5, hash_map.size)
 		assert.equal("Super Dream World", remove_result.ok.key)
 		assert.equal("Kobaryo", remove_result.ok.value)
+		assert.is_false(hash_map:has("Super Dream World"))
 
 		remove_result = hash_map:remove("404 not found")
 		assert.is_true(remove_result:is_err())
